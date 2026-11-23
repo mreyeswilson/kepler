@@ -31,3 +31,9 @@ For each version, test: installation, event delivery, input passthrough, context
 
 ## Pi distribution
 See [npm and Pi distribution](../distribution/NPM_AND_PI.md). The initial `adapters/pi` package is a **non-functional scaffold** and must not be marketed as an operational extension. Public npm publication stays disabled until all release gates pass.
+
+## Desktop clients and discovery
+
+Kepler will detect desktop apps as well as terminal harnesses: **Claude Desktop**, Cursor, VS Code/GitHub Copilot, Windsurf and generic MCP clients, alongside the coding agents above. Discovery is not yet implemented. See [discovery and installation architecture](DISCOVERY.md).
+
+Claude Desktop chat will initially receive **MCP tool access**, potentially via an `.mcpb` Desktop Extension; this does **not** imply native prompt interception. Claude Code (including supported Code sessions inside Desktop) is a separate integration surface with additional hooks. Capability negotiation determines which automatic modules can actually run.

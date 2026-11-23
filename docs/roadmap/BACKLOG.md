@@ -23,4 +23,10 @@
 | KPL-019 | P1 | Pi automatic hook integration | Typed event IPC, tests and safe no-core passthrough |
 | KPL-020 | P1 | npm public release pipeline | Verified scope, license, trusted publishing, approval and version gate |
 
+| KPL-021 | P0 | Installed harness/client discovery | Detect Pi, Claude Code and Claude Desktop read-only; report version and integration limits |
+| KPL-022 | P1 | Safe configuration installer | Preview, approval, atomic merge, backup, rollback and uninstall |
+| KPL-023 | P1 | Claude Desktop MCP adapter | MCP stdio integration with explicitly limited automatic capabilities |
+| KPL-024 | P2 | Desktop extension packaging | Test optional MCPB package and platform compatibility |
+| KPL-025 | P2 | Expanded client discovery | Cursor, VS Code/Copilot, Windsurf and generic MCP clients |
+
 Each issue should include owner (when assigned), dependencies, security implications, tests and performance targets. IDs are planning identifiers, not existing GitHub issues.

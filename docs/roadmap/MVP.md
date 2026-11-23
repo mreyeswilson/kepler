@@ -9,6 +9,8 @@
 - Pi extension proof of integration and fixtures
 - Pi npm package scaffold and no-publish validation workflow
 - document future native binary delivery and npm release gates
+- read-only detection architecture for Pi, Claude Code and Claude Desktop
+- distinguish native hooks from MCP-only clients; never claim universal automatic interception
 
 **Exit:** Pi input event reaches Kepler and safely returns; no LLM or browser starts; missing core causes passthrough.
 

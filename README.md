@@ -45,6 +45,7 @@ Kepler mejora la experiencia de desarrollo con Pi, Claude Code, Codex, Gemini CL
 - [Arquitectura](docs/architecture/OVERVIEW.md)
 - [Eventos y capacidades](docs/architecture/EVENTS_AND_CAPABILITIES.md)
 - [Adaptadores](docs/architecture/HARNESSES.md)
+- [Detección de CLI y clientes de escritorio](docs/architecture/DISCOVERY.md)
 - [Persistencia](docs/architecture/STORAGE.md)
 - [Módulos](docs/modules/README.md)
 - [Modelo de amenazas](docs/security/THREAT_MODEL.md)
@@ -63,10 +64,13 @@ El proyecto está en fase de especificación. Los ejemplos de comandos y nombres
 ```bash
 kepler init
 kepler doctor
+kepler detect
 kepler mcp serve
 ```
 
 El esqueleto del paquete Pi está en `adapters/pi` (marcado `private: true`, **sin publicación npm ni hooks funcionales**). La futura instalación pública será `pi install npm:@kepler/pi`, sujeta a disponibilidad del nombre y pruebas de publicación.
+
+Se contempla detección de Pi, Claude Code, Claude Desktop, Codex, Gemini CLI, OpenCode, Cursor, VS Code/Copilot y otros clientes MCP. **La detección y la instalación automática son requisitos futuros; aún no están implementados.**
 
 **Primera integración objetivo:** Pi Coding Agent. **Primera entrega funcional:** núcleo de eventos + adaptador Pi + Forge y Memory.
 
