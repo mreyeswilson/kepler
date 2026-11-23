@@ -1,0 +1,1 @@
+{ "version": 1, "id": "e", "type": "input.received", "timestamp": "yesterday", "harness": "pi", "project_id": "p", "session_id": "s", "correlation_id": "c", "payload": { "text": "hi" } }

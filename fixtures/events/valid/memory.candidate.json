@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "id": "evt-memory.candidate",
+  "type": "memory.candidate",
+  "timestamp": "2026-01-02T03:04:05.123Z",
+  "harness": "pi",
+  "project_id": "proj-demo",
+  "session_id": "sess-001",
+  "correlation_id": "task-001",
+  "payload": { "text": "Project uses cargo workspaces", "category": "convention" }
+}

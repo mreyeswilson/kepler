@@ -1,0 +1,1 @@
+{ "version": "1", "id": "evt-bad", "type": "input.received", "timestamp": "2026-01-02T03:04:05Z", "harness": "pi", "project_id": "p", "session_id": "s", "correlation_id": "c", "payload": { "text": "hi" } }

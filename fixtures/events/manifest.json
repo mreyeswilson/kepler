@@ -1,0 +1,27 @@
+{
+  "description": "Shared event fixtures for Rust and TypeScript. valid/* must parse; invalid/* must be rejected with the given error code. Oversized events are generated in tests (limit: 65536 bytes per envelope).",
+  "version": 1,
+  "max_envelope_bytes": 65536,
+  "valid": [
+    "valid/input.received.json", "valid/prompt.prepared.json", "valid/context.requested.json",
+    "valid/context.prepared.json", "valid/tool.call.requested.json", "valid/tool.call.completed.json",
+    "valid/files.changed.json", "valid/agent.started.json", "valid/agent.settled.json",
+    "valid/memory.candidate.json", "valid/session.closed.json"
+  ],
+  "invalid": [
+    { "file": "invalid/version-unknown.json", "error": "unsupported_version" },
+    { "file": "invalid/version-missing.json", "error": "unsupported_version" },
+    { "file": "invalid/version-string.json", "error": "unsupported_version" },
+    { "file": "invalid/malformed-json.json", "error": "malformed" },
+    { "file": "invalid/not-object.json", "error": "malformed" },
+    { "file": "invalid/unknown-kind.json", "error": "unknown_kind" },
+    { "file": "invalid/unknown-envelope-field.json", "error": "invalid_field" },
+    { "file": "invalid/bad-timestamp.json", "error": "invalid_field" },
+    { "file": "invalid/session-path-traversal.json", "error": "invalid_field" },
+    { "file": "invalid/missing-payload.json", "error": "invalid_field" },
+    { "file": "invalid/payload-wrong-shape.json", "error": "invalid_field" },
+    { "file": "invalid/payload-unknown-field.json", "error": "invalid_field" },
+    { "file": "invalid/empty-tool.json", "error": "invalid_field" },
+    { "file": "invalid/id-not-string.json", "error": "invalid_field" }
+  ]
+}
