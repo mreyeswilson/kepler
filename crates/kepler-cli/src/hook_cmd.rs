@@ -1,0 +1,261 @@
+//! `kepler hook claude-code <event>`: Claude Code command-hook adapter (ADR-0020).
+//!
+//! Contract: JSON from Claude Code on stdin, optional JSON on stdout, **always exit 0**.
+//! Anything that goes wrong on Kepler's side (bad JSON, core down, timeout, unknown event)
+//! prints nothing, which Claude Code treats as "no opinion". The only outputs that change
+//! behavior are explicit Guardian verdicts (`deny` / `require_approval`) on PreToolUse.
+
+use crate::hook_claude::{build_envelope, render_output, Ctx, HookEvent};
+use clap::{Args, Subcommand};
+use kepler_core::{emit_one_shot, EmitOptions, EmitOutcome};
+use kepler_ipc::Endpoint;
+use serde_json::{json, Value};
+use std::io::Read;
+use std::process::ExitCode;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+/// Largest stdin accepted (tool responses can be big; only a bounded excerpt is forwarded).
+const MAX_STDIN_BYTES: u64 = 8 * 1024 * 1024;
+/// Total budget for one hook invocation talking to the core (`KEPLER_HOOK_TIMEOUT_MS`).
+const DEFAULT_TIMEOUT_MS: u64 = 2000;
+
+#[derive(Subcommand)]
+pub enum HookCmd {
+    /// Claude Code hooks (reads the hook JSON on stdin; prints hook output JSON, if any).
+    ClaudeCode(ClaudeCodeArgs),
+}
+
+#[derive(Args)]
+pub struct ClaudeCodeArgs {
+    /// UserPromptSubmit | PreToolUse | PostToolUse | Stop | SessionStart | SessionEnd.
+    /// Unknown names are ignored (exit 0) so a newer settings file never breaks Claude Code.
+    pub event: Option<String>,
+    /// Print the `hooks` settings block to paste into Claude Code settings.json, then exit.
+    #[arg(long)]
+    pub print_settings: bool,
+    /// With --print-settings: emit single-string shell commands (bash-style quoting) instead of
+    /// the exec form (`command` + `args`). Use it if your Claude Code predates `args`.
+    #[arg(long, requires = "print_settings")]
+    pub shell_form: bool,
+    /// Do not start a daemon when none is running.
+    #[arg(long)]
+    pub no_autostart: bool,
+}
+
+pub fn run(cmd: HookCmd) -> ExitCode {
+    let HookCmd::ClaudeCode(args) = cmd;
+    if args.print_settings {
+        return print_settings(args.shell_form);
+    }
+    // Panics must not turn into a non-zero exit that Claude Code reports as a hook error.
+    let r = std::panic::catch_unwind(|| claude_code(&args));
+    if let Ok(Some(out)) = r {
+        println!("{out}");
+    }
+    ExitCode::SUCCESS
+}
+
+fn claude_code(args: &ClaudeCodeArgs) -> Option<String> {
+    let ev = HookEvent::parse(args.event.as_deref()?)?;
+    let mut raw = Vec::new();
+    std::io::stdin()
+        .lock()
+        .take(MAX_STDIN_BYTES + 1)
+        .read_to_end(&mut raw)
+        .ok()?;
+    if raw.len() as u64 > MAX_STDIN_BYTES {
+        return None;
+    }
+    let outcome = process(ev, &raw, args.no_autostart, &Endpoint::from_env())?;
+    render_output(ev, &outcome)
+}
+
+fn timeout_from_env() -> Duration {
+    let ms = std::env::var("KEPLER_HOOK_TIMEOUT_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_TIMEOUT_MS);
+    Duration::from_millis(ms.clamp(1, 10_000))
+}
+
+/// Parse, map and send. `None` = nothing to do (malformed input, unmappable payload, no runtime).
+fn process(
+    ev: HookEvent,
+    raw: &[u8],
+    no_autostart: bool,
+    endpoint: &Endpoint,
+) -> Option<EmitOutcome> {
+    let input: Value = serde_json::from_slice(raw).ok()?;
+    let env = build_envelope(ev, &input, &new_ctx())?;
+    let total = timeout_from_env();
+    let rt = crate::runtime().ok()?;
+    let outcome = rt.block_on(async {
+        let spawn = crate::spawn_daemon;
+        let opts = EmitOptions {
+            spawn_daemon: if no_autostart { None } else { Some(&spawn) },
+            timeout: total,
+            autostart_wait: total.min(Duration::from_millis(1500)),
+        };
+        deadline(total, emit_one_shot(endpoint, env, &opts)).await
+    });
+    Some(outcome)
+}
+
+/// Hard wall-clock bound over the whole attempt (connect, autostart, request).
+pub async fn deadline(
+    total: Duration,
+    fut: impl std::future::Future<Output = EmitOutcome>,
+) -> EmitOutcome {
+    match tokio::time::timeout(total, fut).await {
+        Ok(o) => o,
+        Err(_) => EmitOutcome::Passthrough {
+            reason: "hook_timeout".into(),
+        },
+    }
+}
+
+fn new_ctx() -> Ctx {
+    static N: AtomicU64 = AtomicU64::new(0);
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    Ctx {
+        timestamp: rfc3339_utc(now.as_secs(), now.subsec_millis()),
+        nonce: format!(
+            "{:x}-{:x}-{:x}",
+            now.as_nanos(),
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ),
+    }
+}
+
+/// `YYYY-MM-DDTHH:MM:SS.mmmZ` from Unix time (civil-from-days, no date dependency).
+pub fn rfc3339_utc(secs: u64, millis: u32) -> String {
+    let days = (secs / 86_400) as i64;
+    let rem = secs % 86_400;
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{millis:03}Z",
+        rem / 3600,
+        (rem % 3600) / 60,
+        rem % 60
+    )
+}
+
+/// (event, matcher, timeout seconds). Short timeouts: Kepler's own budget is 2 s.
+pub const HOOK_TABLE: [(&str, Option<&str>, u32); 6] = [
+    ("UserPromptSubmit", None, 5),
+    (
+        "PreToolUse",
+        Some("Bash|Write|Edit|MultiEdit|NotebookEdit|Read"),
+        5,
+    ),
+    ("PostToolUse", Some("Bash|Read|Grep"), 5),
+    ("Stop", None, 3),
+    ("SessionStart", None, 3),
+    ("SessionEnd", None, 3),
+];
+
+/// The `hooks` block, ready to paste. `exe` is absolute; forward slashes are used on Windows
+/// because they work in both Git Bash and PowerShell and need no JSON-escaping.
+pub fn settings_block(exe: &str, shell_form: bool) -> Value {
+    let mut hooks = serde_json::Map::new();
+    for (event, matcher, timeout) in HOOK_TABLE {
+        let handler = if shell_form {
+            json!({
+                "type": "command",
+                "command": format!("'{}' hook claude-code {event}", exe.replace('\'', "'\\''")),
+                "timeout": timeout,
+            })
+        } else {
+            json!({
+                "type": "command",
+                "command": exe,
+                "args": ["hook", "claude-code", event],
+                "timeout": timeout,
+            })
+        };
+        let mut group = serde_json::Map::new();
+        if let Some(m) = matcher {
+            group.insert("matcher".into(), json!(m));
+        }
+        group.insert("hooks".into(), json!([handler]));
+        hooks.insert(event.into(), json!([Value::Object(group)]));
+    }
+    json!({ "hooks": Value::Object(hooks) })
+}
+
+fn print_settings(shell_form: bool) -> ExitCode {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p.to_string_lossy().replace('\\', "/"),
+        Err(e) => {
+            eprintln!("kepler: cannot determine the executable path: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&settings_block(&exe, shell_form)).unwrap_or_default()
+    );
+    ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rfc3339_known_values() {
+        assert_eq!(rfc3339_utc(0, 0), "1970-01-01T00:00:00.000Z");
+        assert_eq!(rfc3339_utc(1_709_164_800, 7), "2024-02-29T00:00:00.007Z");
+        assert_eq!(rfc3339_utc(1_767_323_045, 0), "2026-01-02T03:04:05.000Z");
+        assert!(kepler_events::is_valid_rfc3339(&new_ctx().timestamp));
+    }
+
+    #[test]
+    fn settings_block_shape_exec_and_shell() {
+        let v = settings_block("C:/Tools/kepler.exe", false);
+        for (event, matcher, _) in HOOK_TABLE {
+            let g = &v["hooks"][event][0];
+            assert_eq!(g.get("matcher").and_then(Value::as_str), matcher);
+            let h = &g["hooks"][0];
+            assert_eq!(h["type"], "command");
+            assert_eq!(h["command"], "C:/Tools/kepler.exe");
+            assert_eq!(h["args"], json!(["hook", "claude-code", event]));
+            assert!(h["timeout"].as_u64().unwrap() <= 5);
+        }
+        let s = settings_block("/opt/it's/kepler", true);
+        let c = s["hooks"]["Stop"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert_eq!(c, "'/opt/it'\\''s/kepler' hook claude-code Stop");
+        assert!(s["hooks"]["Stop"][0]["hooks"][0].get("args").is_none());
+    }
+
+    #[test]
+    fn deadline_turns_a_hung_core_into_passthrough() {
+        let rt = crate::runtime().unwrap();
+        let o = rt.block_on(deadline(Duration::from_millis(20), async {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+            EmitOutcome::Passthrough {
+                reason: "late".into(),
+            }
+        }));
+        assert_eq!(
+            o,
+            EmitOutcome::Passthrough {
+                reason: "hook_timeout".into()
+            }
+        );
+    }
+}
