@@ -114,12 +114,11 @@ mod tests {
     }
 
     fn engine() -> (PolicyEngine, Arc<Writer>) {
+        static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let d = std::env::temp_dir().join(format!(
             "kepler-memmod-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos())
+            N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
         ));
         std::fs::create_dir_all(&d).unwrap();
         let path = d.join("k.db");
