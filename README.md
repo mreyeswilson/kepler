@@ -8,14 +8,14 @@
 
 | Módulo | Qué implementa (con tests) | Límites conocidos |
 |---|---|---|
-| **Focus** | Supervisión determinista como *avisos* no bloqueantes: scope lock, bucles (llamadas/fallos repetidos, ediciones oscilantes), presupuesto adaptativo, guardia de cambio mínimo (manifiestos de dependencias, cambios grandes), puerta de evidencia/finalización. [ADR-0014](docs/decisions/0014-focus-implementation.md) | Umbrales sin calibrar; nunca cancela ni bloquea; el adaptador Pi aún no muestra los avisos; sin benchmark con/sin Kepler |
-| **Forge** | Clasificador passthrough/enrich/compile/decompose y spec derivada etiquetada (nunca promueve inferencias a instrucciones). [ADR-0009](docs/decisions/0009-module-pipeline-and-forge.md) | Heurísticas en inglés/español sin evaluar sobre prompts reales; sin LLM |
-| **Memory** | FTS5 con alcance, ranking, dedupe/supersession, presupuesto de tokens estimados, controles `kepler memory ...`. [ADR-0010](docs/decisions/0010-memory-storage-and-ranking.md) | Pesos sin afinar; sin embeddings |
-| **Guardian** | Preflight de herramientas *fail-closed*, reglas del usuario, secretos en resultados (`redact`), presupuesto de contexto. [ADR-0011](docs/decisions/0011-guardian-and-wire-additions.md) | Coincidencia de cadenas, no es un sandbox; sin tokenizador real; sin compresión de salida |
-| **Sentinel** | Auditoría determinista: reglas de rutas en el daemon (`files.changed`) y reglas de líneas añadidas sobre `git diff` (`kepler sentinel audit`); hallazgos `confirmed`/`suspected` en `audit_findings`. [ADR-0015](docs/decisions/0015-sentinel-and-findings.md) | Sin AST ni integración con linters/tests del proyecto; reglas simples |
-| **Vision** | Gestor Rust (lazy, timeouts con kill, allowlist localhost, entorno mínimo) + worker TypeScript/Playwright privado en `workers/vision`. [ADR-0016](docs/decisions/0016-vision-worker.md) | **El worker nunca se ejecutó contra un Chromium real** (no se descargó ningún navegador); apagado por defecto hasta configurar `KEPLER_VISION_WORKER` |
-| **Orbit** | Planificador DAG de tareas de comandos, concurrencia acotada, un git worktree por tarea, aprobaciones para comandos destructivos, `kepler orbit ...`. [ADR-0017](docs/decisions/0017-orbit-dag-scheduler.md) | No inicia agentes por sí mismo; sin límites de CPU/RAM del SO; el kill de procesos en Unix no se ejecutó fuera de Windows |
-| **Genesis** | **No implementado.** Solo diseño y requisitos previos. [ADR-0018](docs/decisions/0018-genesis-deferred-design.md) | No existe UI de escritorio |
+| **Focus** | Supervisión determinista como *avisos* no bloqueantes: scope lock, bucles (llamadas/fallos repetidos, ediciones oscilantes), presupuesto adaptativo, guardia de cambio mínimo (manifiestos de dependencias, cambios grandes), puerta de evidencia/finalización. [ADR-0014](docs/decisions/0014-focus-implementation.md) | Calibrado solo con 12 trazas sintéticas ([ADR-0023](docs/decisions/0023-focus-calibration-and-advisory-display.md): 9/9 avisos esperados, 0 falsos positivos, ~84 us/evento); nunca cancela ni bloquea; el adaptador Pi muestra los avisos con `ctx.ui.notify` (probado con UI simulada, no en un TUI real); sin A/B con/sin Kepler con un modelo real |
+| **Forge** | Clasificador passthrough/enrich/compile/decompose y spec derivada etiquetada (nunca promueve inferencias a instrucciones). [ADR-0009](docs/decisions/0009-module-pipeline-and-forge.md) | Corpus propio de 79 prompts es/en (`fixtures/forge/prompts.tsv`) con 100 % de acierto tras ajustar reglas: riesgo de sobreajuste, sin prompts de usuarios reales; sin LLM |
+| **Memory** | FTS5 con alcance, ranking, dedupe/supersession, presupuesto de tokens estimados, controles `kepler memory ...`. [ADR-0010](docs/decisions/0010-memory-storage-and-ranking.md) | Captura automática de lo *observado* (comandos de build/test que terminaron bien; archivos cambiados por rama) y selección real del scope de rama ([ADR-0021](docs/decisions/0021-memory-auto-capture-and-branch.md)); pesos de ranking sin afinar; sin embeddings |
+| **Guardian** | Preflight de herramientas *fail-closed*, reglas del usuario, secretos en resultados (`redact`), presupuesto de contexto. [ADR-0011](docs/decisions/0011-guardian-and-wire-additions.md) | Análisis real de comandos shell/PowerShell/cmd (comillas, variables, `bash -c`, `-EncodedCommand`, pipes a intérpretes, symlinks/junctions) con corpus de ~190 casos ([ADR-0020](docs/decisions/0020-guardian-shell-analysis.md)); sigue sin ser un sandbox: no ve scripts ejecutados desde archivos, alias, ni lo que el harness no reporta; ~0,6 ms/comando |
+| **Sentinel** | Auditoría determinista: reglas de rutas en el daemon (`files.changed`) y reglas de líneas añadidas sobre `git diff` (`kepler sentinel audit`); hallazgos `confirmed`/`suspected` en `audit_findings`. [ADR-0015](docs/decisions/0015-sentinel-and-findings.md) | `kepler sentinel check` ejecuta lint/test del proyecto (acotado, tras el Guardian) y registra hallazgos ([ADR-0022](docs/decisions/0022-sentinel-project-checks.md)); parsers heurísticos de texto, sin AST; no corre solo desde el daemon |
+| **Vision** | Gestor Rust (lazy, timeouts con kill, allowlist localhost, entorno mínimo) + worker TypeScript/Playwright privado en `workers/vision`. [ADR-0016](docs/decisions/0016-vision-worker.md) | **Probado en Windows 11 con Microsoft Edge real** (`scripts/acceptance.ps1`: error de consola, recurso 404, enlace roto, captura PNG, allowlist, timeout con kill del árbol). Necesita Node >= 22.18 y `kepler vision setup`; Linux/macOS **no probados**; sin auditoría de contraste ni árbol de accesibilidad |
+| **Orbit** | Planificador DAG de tareas de comandos, concurrencia acotada, un git worktree por tarea, aprobaciones para comandos destructivos, `kepler orbit ...`. [ADR-0017](docs/decisions/0017-orbit-dag-scheduler.md) | **Probado en Windows** con repos git reales (dependencias, commit en la rama de la tarea, aprobación + resume, cancelación con kill del árbol, cleanup) y con `claude -p` real mediante el preset `agent`. Sin límites de CPU/RAM del SO; el kill de procesos en Unix **no se ha ejecutado** |
+| **Genesis (UI local)** | `kepler ui`: panel en `127.0.0.1` con token de sesión, comprobación de Host/Origin, API JSON de solo lectura (resumen, eventos, memoria, hallazgos, Orbit) y aprobar/denegar Orbit solo con `--allow-actions` y confirmación escrita. [ADR-0024](docs/decisions/0024-genesis-local-ui.md) | Es un panel, no el flujo de diseño de UI de [ADR-0018](docs/decisions/0018-genesis-deferred-design.md) (sin generación de diseños/código); solo verificado en Windows |
 
 Infraestructura: eventos v1 con fixtures, 8 capacidades negociadas ([ADR-0002](docs/decisions/0002-adapter-capabilities.md)), IPC local de usuario único ([ADR-0007](docs/decisions/0007-ipc-wire-protocol.md)), SQLite WAL + FTS5 con redacción de secretos, daemon lazy con apagado por inactividad, servidor MCP stdio ([ADR-0012](docs/decisions/0012-mcp-stdio-minimal-server.md)), adaptador Pi con hooks automáticos (`adapters/pi`, `private: true`, [ADR-0013](docs/decisions/0013-pi-automatic-hooks.md)). Mediciones reales en [PERFORMANCE.md](docs/development/PERFORMANCE.md).
 
@@ -89,7 +89,7 @@ cargo build --release            # binario: target/release/kepler (kepler.exe en
 cargo test --workspace           # los tests de Orbit/Sentinel usan `git` real en repos temporales
 ```
 
-Playwright (opcional, solo para Vision): `cd workers/vision && npm ci --ignore-scripts && npm run build && npx playwright install chromium` (la descarga del navegador la haces tú; Kepler nunca la hace).
+Vision (opcional): ver "Preparar Vision". Desarrollo del worker: `cd workers/vision && npm ci --ignore-scripts && npm run build`. Kepler nunca descarga un navegador; si no tienes Edge/Chrome, `npx playwright install chromium` lo haces tú.
 
 ## Uso
 
@@ -102,16 +102,35 @@ kepler memory list|search|export|add|purge|disable|enable|stats
 kepler mcp serve                               # MCP por stdio: kepler_doctor, kepler_inspect, kepler_memory_search
 
 kepler sentinel audit --repo . [--staged | --base main] [--store] [--fail-on high]
+kepler sentinel check --repo . --detect [--cmd "lint=cargo clippy"] [--timeout-secs 300] [--store]
 kepler sentinel list [--min-severity medium] ; kepler sentinel dismiss <id>
+kepler ui [--port N] [--allow-actions] [--open]  # panel local con token en la URL
 
-KEPLER_VISION_WORKER=workers/vision/dist/src/main.js kepler vision check http://localhost:3000
-kepler vision status [--probe] ; kepler vision clean
+kepler vision setup                            # una vez: instala el worker en el directorio de datos (npm install de playwright; sin navegador)
+kepler vision status --probe                   # lanza el navegador una vez y dice cuál encontró (Edge, Chrome, Chromium)
+kepler vision check http://localhost:3000 [--viewport 375x812] [--screenshot] [--store]
+kepler vision clean
 
 kepler orbit plan plan.json                    # valida (ciclos, límites, secretos, Guardian); no ejecuta
 kepler orbit run plan.json --repo . --base HEAD
 kepler orbit approve|deny <run> <task> ; kepler orbit resume <run>
-kepler orbit status <run> ; kepler orbit cancel <run> ; kepler orbit cleanup <run> --yes
+kepler orbit status <run> ; kepler orbit logs <run> <task> ; kepler orbit cancel <run> ; kepler orbit cleanup <run> --yes
 ```
+
+### Preparar Vision (Windows)
+
+1. Instala Node.js >= 22.18 (el worker son fuentes TypeScript que Node ejecuta directamente; no hay paso de compilación).
+2. `kepler vision setup`: escribe el worker en `%LOCALAPPDATA%\kepler\vision-worker` y ejecuta `npm install --omit=dev --ignore-scripts` solo para `playwright` (versión fijada). Es explícito: no hay `postinstall` oculto y no se descarga ningún navegador.
+3. Navegador: se usa uno ya instalado, en este orden: `KEPLER_VISION_BROWSER` (`msedge`, `chrome` o ruta a un ejecutable), Microsoft Edge (viene con Windows 11), Google Chrome, Chromium de Playwright. Si no hay ninguno, `kepler vision status --probe` lo dice (`browser: NONE`, exit 2) y propone instalar Edge/Chrome o ejecutar `npx playwright install chromium`.
+4. `kepler vision status --probe` para comprobarlo. `KEPLER_VISION_WORKER=<ruta>` sustituye al worker instalado (desarrollo: `workers/vision`, `npm ci && npm run build`, `dist/src/main.js`).
+
+### Suite de aceptación funcional
+
+`powershell -File scripts/acceptance.ps1 [-Kepler ruta\kepler.exe] [-RequireVision] [-WithClaude]` ejercita el binario release en un `KEPLER_HOME` temporal (version, doctor, emit passthrough/enrich/deny, memory, sentinel audit/check, inspect, MCP por stdio, hook `kepler hook claude-code` en frío (rm -rf => ask, Read .env => deny, `ls` en silencio, JSON basura => exit 0), `kepler ui` con y sin token, Vision contra un servidor local y un navegador real, Orbit con repos git temporales incl. cancelación y tarea `agent`) e imprime una tabla PASS/FAIL/SKIP; sale con 1 si algo falla. Un SKIP (p. ej. sin Node o sin navegador) nunca cuenta como PASS; `-RequireVision` lo convierte en fallo (así lo usa el job `acceptance.yml` en `windows-2022`). `-WithClaude` añade una tarea real `claude -p` no destructiva.
+
+### Tareas de agente en Orbit
+
+Una tarea puede ser `{"id":"fix","agent":"<prompt>","agent_args":["--permission-mode","acceptEdits"],"timeout_secs":900}` en lugar de `command`: ejecuta `claude -p "<prompt>" <agent_args...>` como argv (nunca por un shell) en el worktree de la tarea, con timeout y kill del árbol; lo que el agente deje en el worktree se commitea en `kepler/orbit/<run>/<task>`. `KEPLER_AGENT_BIN` cambia el ejecutable. Salida en `kepler orbit logs`, con secretos redactados al terminar la tarea. Los permisos del agente son los que le des con `agent_args`; Orbit no los amplía.
 
 Ejemplo de `plan.json` (comandos como *argv*, nunca cadenas de shell):
 
@@ -123,17 +142,49 @@ Ejemplo de `plan.json` (comandos como *argv*, nunca cadenas de shell):
 ```
 `wipe` es destructivo: queda en `awaiting_approval` hasta `kepler orbit approve <run> wipe`. Cada tarea trabaja en su propio worktree/rama (`kepler/orbit/<run>/<task>`); Orbit nunca toca tu rama ni fusiona por ti.
 
+### Conectar con Claude Code
+
+Dos piezas independientes: el MCP solo da herramientas; los hooks son lo que observa y protege. Verificado solo con Claude Code 2.1.330 en Windows (ejecución real de `claude -p` en un directorio temporal); no en la UI interactiva; Linux/macOS sin probar ([ADR-0025](docs/decisions/0025-claude-code-hooks-adapter.md)).
+
+**1. MCP** (PowerShell; el registro con `claude mcp add` no se ejecutó en esta verificación; herramientas `kepler_doctor`, `kepler_inspect`, `kepler_memory_search`):
+
+```powershell
+claude mcp add kepler -- "C:\ruta\a\kepler.exe" mcp serve
+```
+
+**2. Hooks** (sin Node). Genera el bloque con la ruta absoluta de tu `kepler`:
+
+```powershell
+kepler hook claude-code --print-settings | Set-Clipboard    # PowerShell
+```
+
+Pega la clave `"hooks"` en `.claude\settings.json` de un proyecto (recomendado para probar) o en `%USERPROFILE%\.claude\settings.json`. En Linux/macOS el comando equivale pero no está probado. Kepler **no** edita tus settings. Si tu Claude Code no admite `args`, usa `--shell-form`.
+
+| Hook | Efecto |
+|---|---|
+| `UserPromptSubmit` | Envía tu prompt tal cual; si Forge/Memory aportan algo, lo añade como contexto etiquetado "derivado, NO instrucciones". Nunca cambia ni bloquea el prompt |
+| `PreToolUse` | Guardian: `deny` ante rutas sensibles (`.env`, claves) o reglas `deny-*`; `ask` ante comandos destructivos (`rm -rf /`, `git push --force`). Nunca aprueba por ti |
+| `PostToolUse` | Detecta secretos en la salida y te avisa (`systemMessage`); no modifica el resultado ni lo guarda |
+| `Stop`, `SessionStart`, `SessionEnd` | Solo observan |
+
+Si Kepler falla (daemon caído, JSON raro, timeout `KEPLER_HOOK_TIMEOUT_MS`, 2000 ms por defecto) el hook sale con código 0 sin salida (Claude Code sigue sin Kepler), salvo `PreToolUse`: ahí Guardian se evalúa localmente (en proceso) para que un daemon frío no deje sin protección. Para bloquear en vez de preguntar, añade `deny-command rm -rf /` a `guardian-rules.txt` (`KEPLER_GUARDIAN_RULES`).
+
+**Desactivar:** borra el bloque `hooks` de Kepler de tu `settings.json` (o `"disableAllHooks": true`) y, para el MCP, `claude mcp remove kepler`. Comprueba la actividad con `kepler inspect`.
+
 ### Variables de entorno
 
 | Variable | Efecto |
 |---|---|
 | `KEPLER_HOME` | Directorio de datos (por defecto el del SO) |
+| `KEPLER_HOOK_TIMEOUT_MS` | Plazo total de cada hook de Claude Code (1-10000, 2000 por defecto) |
 | `KEPLER_IPC_NAME`, `KEPLER_IDLE_TIMEOUT_SECS` | Endpoint IPC y apagado por inactividad del daemon |
 | `KEPLER_FORGE`, `KEPLER_FOCUS`, `KEPLER_SENTINEL`, `KEPLER_GUARDIAN_BUDGET` = `off` | Desactiva ese módulo (el preflight de Guardian no se puede desactivar) |
 | `KEPLER_FOCUS_SOFT_TOOL_CALLS`, `KEPLER_FOCUS_SOFT_SECONDS` | Presupuestos blandos de Focus |
 | `KEPLER_GUARDIAN_RULES` | Archivo de reglas del usuario (solo endurecen) |
 | `KEPLER_MEMORY`, `KEPLER_MEMORY_BUDGET_TOKENS`, `KEPLER_MEMORY_RETENTION_DAYS` | Controles de Memory |
-| `KEPLER_VISION_WORKER`, `KEPLER_VISION_NODE`, `KEPLER_VISION_ALLOW_HOSTS` | Worker de Vision (apagado sin `WORKER`) y hosts extra permitidos |
+| `KEPLER_VISION_WORKER`, `KEPLER_VISION_NODE`, `KEPLER_VISION_ALLOW_HOSTS` | Worker de Vision (por defecto el instalado por `kepler vision setup`), Node a usar y hosts extra permitidos |
+| `KEPLER_VISION_BROWSER`, `KEPLER_NPM` | Navegador de Vision (`msedge`, `chrome`, `chromium` o ruta a un ejecutable) y npm usado por `vision setup` |
+| `KEPLER_AGENT_BIN` | Ejecutable de las tareas `agent` de Orbit (por defecto `claude`) |
 
 ## Arquitectura
 
@@ -160,9 +211,10 @@ Crates: `kepler-events` (envelope v1), `-policy` (motor, Guardian, redacción), 
 
 ## Qué falta (sin verificar o sin implementar)
 
-* Verificación con Pi real, cliente MCP de terceros, Chromium real, Linux y macOS (el código Unix del transporte y del kill de procesos de Orbit no se ejecutó fuera de Windows; lo cubrirá la matriz de CI).
-* Benchmark con/sin Kepler (KPL-032) y calibración de Focus; la compresión de salida de herramientas; detección/instalación de harnesses; primer release real y paquete npm (el npm sigue bloqueado hasta verificar con un Pi real).
-* Genesis y cualquier UI de escritorio.
+* **Estado integrado (rama `integration/all`, solo Windows 11, Node 24):** `cargo clippy -D warnings`, `cargo test --workspace`, tests y e2e de `adapters/pi` (24/24 con Pi 1.6.0), tests de `workers/vision`, `scripts/acceptance.ps1 -WithClaude -RequireVision` (25 PASS, 0 FAIL, 0 SKIP, con Edge real y `claude -p` real) y una prueba real de `claude -p` con los hooks de `kepler hook claude-code` (lectura de `.env` bloqueada, lectura inocua permitida, eventos registrados sin el secreto). **No probado:** Linux y macOS, Chromium descargado por Playwright (solo Edge), modelo remoto real con Pi, TUI interactivo (Pi y Claude Code), los workflows nuevos de GitHub Actions (`acceptance.yml`, etc.), instalación desde un Release (no existe ninguno).
+* Verificado con un Pi real 1.6.0 (e2e: `npm run test:e2e` en `adapters/pi`, modelo scripted sin credenciales; ver [NPM_AND_PI](docs/distribution/NPM_AND_PI.md)). **No** verificado: aprobaciones interactivas en el TUI de Pi, avisos de Focus en un TUI real, un modelo remoto real, cliente MCP de terceros, Chromium real, Linux y macOS.
+* Benchmark A/B con/sin Kepler con un modelo real (KPL-032); compresión de salida de herramientas; detección/instalación de harnesses; primer release real y paquete npm (el adaptador Pi sigue `private: true` hasta aprobar propiedad del scope npm y release).
+* Flujo de diseño/generación de UI de Genesis (ADR-0018); `kepler ui` es solo un panel.
 
 ## Documentación
 

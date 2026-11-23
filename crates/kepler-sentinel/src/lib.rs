@@ -8,11 +8,16 @@
 //! * No model call, no network, no execution of project code. Every scan is bounded.
 
 mod audit;
+mod check;
 mod diff;
 mod module;
 mod rules;
 
 pub use audit::{audit_repo, AuditError, AuditReport, AuditScope};
+pub use check::{
+    detect, parse_output as parse_check_output, run_check, CheckResult, CheckSpec, CheckStatus,
+    DEFAULT_TIMEOUT as CHECK_TIMEOUT,
+};
 pub use diff::{parse_unified, FileDiff};
 pub use module::SentinelModule;
 pub use rules::{audit_diffs, audit_paths, Hit};

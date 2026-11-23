@@ -2,7 +2,7 @@
 //! checkpoints for destructive commands. Works on the local database directly (no daemon).
 
 use clap::Subcommand;
-use kepler_orbit::{parse_plan, validate, Orbit, RunSummary, ValidPlan, MAX_PARALLEL};
+use kepler_orbit::{parse_plan, validate_with, Orbit, RunSummary, ValidPlan, MAX_PARALLEL};
 use kepler_policy::Guardian;
 use kepler_storage::Writer;
 use serde_json::{json, Value};
@@ -55,6 +55,8 @@ pub enum OrbitCmd {
         #[arg(long)]
         json: bool,
     },
+    /// Print a task's captured output (already redacted).
+    Logs { run: String, task: String },
     /// Stop a running run (from another terminal): tasks are killed, pending ones cancelled.
     Cancel { run: String },
     /// Remove worktrees, branches and logs of a run. Task branches hold the work: merge what you
@@ -90,7 +92,11 @@ fn load_plan(file: &PathBuf) -> Result<ValidPlan, String> {
     let text = std::fs::read_to_string(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let (rules, _) = kepler_core::pipeline::load_guardian_rules();
     let plan = parse_plan(&text).map_err(|e| e.to_string())?;
-    validate(&plan, &Guardian::new(rules)).map_err(|e| e.to_string())
+    let bin = std::env::var("KEPLER_AGENT_BIN")
+        .ok()
+        .filter(|b| !b.is_empty())
+        .unwrap_or_else(|| "claude".into());
+    validate_with(&plan, &Guardian::new(rules), &bin).map_err(|e| e.to_string())
 }
 
 fn summary_json(s: &RunSummary) -> Value {
@@ -251,6 +257,29 @@ fn exec(cmd: OrbitCmd) -> Result<ExitCode, String> {
             } else {
                 print_summary(&s);
             }
+            Ok(ExitCode::SUCCESS)
+        }
+        OrbitCmd::Logs { run, task } => {
+            let ok = |s: &str| {
+                !s.is_empty()
+                    && s.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+                    && !s.starts_with('.')
+            };
+            if !ok(&run) || !ok(&task) {
+                return Err("invalid run or task id".into());
+            }
+            let dir = kepler_storage::dirs::data_dir()
+                .map_err(|e| e.to_string())?
+                .join("orbit")
+                .join(&run);
+            let out = std::fs::read(dir.join(format!("{task}.log"))).unwrap_or_default();
+            let err = std::fs::read(dir.join(format!("{task}.err.log"))).unwrap_or_default();
+            if out.is_empty() && err.is_empty() {
+                return Err(format!("no output captured for {run}/{task}"));
+            }
+            println!("--- stdout ---\n{}", String::from_utf8_lossy(&out));
+            println!("--- stderr ---\n{}", String::from_utf8_lossy(&err));
             Ok(ExitCode::SUCCESS)
         }
         OrbitCmd::Approve { run, task } => resolve(&run, &task, true),

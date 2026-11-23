@@ -1,0 +1,1 @@
+{"session_id":"abc123-DEF_456","transcript_path":"/home/dev/.claude/projects/x/t.jsonl","cwd":"/home/dev/proj","permission_mode":"default","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /","description":"wipe"},"tool_use_id":"toolu_01ABC"}

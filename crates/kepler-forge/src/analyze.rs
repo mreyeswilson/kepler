@@ -81,8 +81,19 @@ const BUG_WORDS: &[&str] = &[
     "error",
     "regression",
     "arregla",
-    "corrige",
+    "arreglar",
+    "arregles",
+    "arregle",
+    "corregir",
+    "corrijas",
+    "corrija",
+    "errores",
+    "bugs",
+    "fixing",
+    "fixes",
+    "crashes",
     "falla",
+    "corrige",
     "roto",
 ];
 const FEATURE_WORDS: &[&str] = &[
@@ -106,6 +117,10 @@ const REFACTOR_WORDS: &[&str] = &[
     "refactoriza",
     "renombra",
     "simplifica",
+    "clean",
+    "limpia",
+    "limpiar",
+    "reestructura",
 ];
 const TEST_WORDS: &[&str] = &["test", "tests", "coverage", "prueba", "pruebas"];
 const DOC_WORDS: &[&str] = &["document", "docs", "readme", "documenta", "documentación"];
@@ -116,6 +131,10 @@ const PERF_WORDS: &[&str] = &[
     "performance",
     "optimiza",
     "rápido",
+];
+const COMMAND_STARTS: &[&str] = &[
+    "run", "execute", "ejecuta", "corre", "git", "cargo", "npm", "pnpm", "yarn", "pytest",
+    "docker", "ls", "cd",
 ];
 const QUESTION_WORDS: &[&str] = &[
     "why", "how", "what", "where", "which", "when", "who", "explain", "qué", "que", "por", "cómo",
@@ -165,6 +184,10 @@ const SEQUENCE_MARKERS: &[&str] = &[
     "luego",
     "después",
     "finalmente",
+    "first",
+    "primero",
+    "next",
+    "afterward",
 ];
 
 /// Classify `text` and build its derived spec. `text` is returned unmodified inside the result.
@@ -183,6 +206,10 @@ pub fn analyze(text: &str) -> Analysis {
     }
     let lower = text.to_lowercase();
     let words = words_of(&lower);
+    // A literal command ("run cargo test", "git status") is already as specific as it gets.
+    if words.first().is_some_and(|w| COMMAND_STARTS.contains(w)) && sentences(text).len() == 1 {
+        return done(Mode::Passthrough, "command", DerivedSpec::new());
+    }
     let kind = task_kind(&words);
     let sentences = sentences(text);
 
@@ -329,8 +356,12 @@ fn is_question(lower: &str, words: &[&str], original: &str, task_like: bool) -> 
     // Starting like a question wins even when the text mentions a task word ("why is it slow?").
     original.trim_start().starts_with('¿')
         || words.first().is_some_and(|w| QUESTION_WORDS.contains(w))
-        || lower.starts_with("is ")
-        || lower.starts_with("does ")
+        || [
+            "is ", "are ", "does ", "do we ", "do i ", "do you ", "did ", "will ", "has ",
+            "have we ", "hay ", "existe ", "puedo ", "tenemos ",
+        ]
+        .iter()
+        .any(|p| lower.starts_with(p))
         || (!task_like && original.trim_end().ends_with('?'))
 }
 
@@ -391,7 +422,45 @@ fn steps_of<'a>(text: &'a str, sentences: &[&'a str]) -> Vec<&'a str> {
     if sequenced >= 2 && sentences.len() >= 3 {
         return sentences.to_vec();
     }
+    // One sentence chained with markers: "first X, then Y, and finally Z".
+    let lower = text.to_lowercase();
+    let markers = SEQUENCE_MARKERS
+        .iter()
+        .filter(|m| has_marker(&lower, &[**m]))
+        .count();
+    if markers >= 2 {
+        let clauses: Vec<&str> = text
+            .split([',', ';', '.', '\n'])
+            .map(|c| strip_connector(c.trim()))
+            .filter(|c| c.chars().count() >= 4)
+            .collect();
+        if clauses.len() >= 3 {
+            return clauses;
+        }
+    }
     Vec::new()
+}
+
+/// Drop a leading "and then" / "y luego" style connector (the result stays a substring).
+fn strip_connector(clause: &str) -> &str {
+    let mut c = clause;
+    loop {
+        let lower = c.to_lowercase();
+        let Some(word) = [
+            "and",
+            "y",
+            "then",
+            "luego",
+            "finally",
+            "finalmente",
+            "después",
+        ]
+        .iter()
+        .find(|w| lower.starts_with(*w) && lower[w.len()..].starts_with(' ')) else {
+            return c;
+        };
+        c = c[word.len()..].trim_start();
+    }
 }
 
 fn is_list_item(line: &str) -> bool {

@@ -1,12 +1,34 @@
 # Changelog
 
-Format: [Keep a Changelog](https://keepachangelog.com/). Nothing has been released: no tags, binaries or npm
-packages exist. License: MIT. Everything below is on branch `feat/rust-core-d0` and is
-**unreleased** (workspace version `0.0.1`, `publish = false`).
+Format: [Keep a Changelog](https://keepachangelog.com/). License: MIT. Crates stay `publish = false`;
+`adapters/pi` and `workers/vision` stay `private: true` (nothing is published to npm).
 
 ## [Unreleased]
 
+## [0.0.2]
+
+First tagged release. Integrates `feat/functional-core`, `feat/functional-modules` and `feat/claude-code-adapter`
+(Vision, Orbit agent tasks, Genesis UI, Claude Code hooks, Guardian/Sentinel).
+
+**Verified:** Windows 11 only (`scripts/acceptance.ps1` 25/25; Rust, Pi and Vision tests).
+**Not verified:** Linux/macOS behaviour of the new modules before CI, Playwright's Chrome/Chromium, a real remote
+model, interactive TUIs, and the `acceptance.yml` workflow on GitHub (it had never run before this release).
+
+### Integration (`integration/all`)
+Merges `feat/functional-core`, `feat/functional-modules` and `feat/claude-code-adapter`. The Claude Code hooks ADR was renumbered from 0020 to ADR-0025 (0020 is the Guardian shell analysis ADR). `scripts/acceptance.ps1` now also covers `kepler hook claude-code` (cold), `kepler sentinel check` and `kepler ui` (token required). Verified on Windows 11 only; Linux/macOS, Playwright Chromium, a real remote model, interactive TUIs and the new GitHub workflows are untested.
+
+### Added (functional modules, Windows)
+- **Vision runs against a real browser**: the worker launches an already-installed Microsoft Edge (`channel: msedge`), then Chrome, then Playwright's Chromium, or `KEPLER_VISION_BROWSER`; `kepler vision setup` installs the embedded worker sources plus the pinned `playwright` package into the data directory (no browser download, no postinstall); `kepler vision status --probe` launches the browser once and reports which one, or `browser: NONE` with the fix. New findings: HTTP 4xx/5xx sub-resources and broken same-origin links (`links.broken`); screenshots capped at 2 MiB. Worker process tree (browser included) is killed with `taskkill /T` on timeout.
+- **Orbit `agent` tasks**: `{"agent": "<prompt>", "agent_args": [...]}` runs `claude -p` (or `KEPLER_AGENT_BIN`) as argv in the task worktree; task output is stored in separate stdout/stderr logs and redacted when the task ends; `kepler orbit logs <run> <task>`.
+- **`scripts/acceptance.ps1`** and the `acceptance.yml` workflow (windows-2022): functional suite over the release binary with a PASS/FAIL/SKIP table; skips are never passes.
+
+### Fixed (functional modules)
+- Orbit `cleanup` only removed worktrees/branches whose paths were recorded in the database, so cancelled or killed tasks leaked a prunable worktree registration and their branch. It now derives both from the run and task ids.
+- Orbit logs mislabelled output: both pipes shared one file and two headers were written up front, so stdout could appear under `--- stderr ---`.
+- The Vision worker environment lacked `ProgramFiles*`, which Playwright needs to find an installed Edge/Chrome.
+
 ### Added
+- **Claude Code adapter** (`kepler hook claude-code <Event>`, `--print-settings`, ADR-0025): Rust hooks for UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart and SessionEnd mapped to v1 events; Guardian deny/ask on PreToolUse, labeled derived context on prompts, secret warning on tool results; always exit 0, passthrough on any Kepler failure. Unit and e2e tests; run manually against Claude Code 2.1.330 on Windows only.
 - **Private-repo testing** (anonymous download first; token only if `KEPLER_GITHUB_TOKEN` is set or as a fallback after a 401/403/404): `install.sh`/`install.ps1` accept an optional GitHub token (`KEPLER_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token`) and then download assets through the GitHub API (`Authorization` only to `https://api.github.com`, never printed or stored; SHA-256 still mandatory). Tests in `tests/installers/`; README section "Probar con el repo privado".
 
 ### Fixed

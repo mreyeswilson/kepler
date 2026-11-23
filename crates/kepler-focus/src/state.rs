@@ -331,6 +331,8 @@ impl SessionState {
         self.calls_since_change = 0;
         self.calls_after_verify = 0;
         self.last_change_seq = self.seq;
+        // An edit between failures is progress, not a streak (a retry after a change is legitimate).
+        self.fails_in_row = 0;
         let mut sorted: Vec<String> = paths.iter().map(|p| norm(p)).collect();
         sorted.sort();
         sorted.dedup();

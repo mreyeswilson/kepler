@@ -22,7 +22,7 @@
 **Trigger:** relevant staged/diff changes or requested review. First deterministic checks, Git diff and existing lints/tests; add Tree-sitter analysis or LLM review when justified. Separate confirmed defects from speculative suggestions. *Status:* deterministic path and diff rules implemented ([ADR-0015](../decisions/0015-sentinel-and-findings.md)); no Tree-sitter, LLM review or lint/test integration.
 
 ## Vision — UI inspection
-**Trigger:** frontend changes and compatible preview availability. Spawn a TypeScript/Playwright worker only on demand; reuse browser process briefly, collect screenshots/logs, perform overflow and accessibility checks. No resident Chromium. *Status:* manager and private worker implemented, off until `KEPLER_VISION_WORKER` is set; never run against a real browser ([ADR-0016](../decisions/0016-vision-worker.md)).
+**Trigger:** frontend changes and compatible preview availability. Spawn a TypeScript/Playwright worker only on demand; reuse browser process briefly, collect screenshots/logs, perform overflow and accessibility checks. No resident Chromium. *Status:* manager and private worker implemented, off until `kepler vision setup` (or `KEPLER_VISION_WORKER`); run against a real Edge on Windows 11, not yet on Linux/macOS ([ADR-0016](../decisions/0016-vision-worker.md)).
 
 ## Genesis — AI interface designer (later phase)
 **Trigger:** design creation or redesign tasks where the user has requested them. Creates structured UI specifications, mockup/preview candidates, component mapping and code plans; uses existing project design tokens and the agent's supported stack. Renderers/workers are on demand. [Full design](GENESIS.md). *Status:* not implemented, design only ([ADR-0018](../decisions/0018-genesis-deferred-design.md)).

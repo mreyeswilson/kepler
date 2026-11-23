@@ -263,3 +263,15 @@ fn from_env_requires_explicit_configuration() {
         ));
     }
 }
+
+#[test]
+fn typescript_entry_points_run_under_node() {
+    let c = WorkerCommand::from_path(std::path::PathBuf::from("w/src/main.ts"));
+    assert_eq!(c.program, std::ffi::OsString::from("node"));
+    assert!(c
+        .args
+        .iter()
+        .any(|a| a.to_string_lossy().ends_with("main.ts")));
+    let exe = WorkerCommand::from_path(std::path::PathBuf::from("w/worker.exe"));
+    assert!(exe.args.is_empty());
+}

@@ -28,6 +28,8 @@ export type EventKind = (typeof EVENT_KINDS)[number];
 
 export interface InputReceivedPayload {
   text: string;
+  /** Current git branch when known (ADR-0021). */
+  branch?: string;
 }
 
 export interface EventEnvelope<P = unknown> {
@@ -81,7 +83,7 @@ function checkPayload(kind: EventKind, p: unknown): EnvelopeError | null {
   };
   switch (kind) {
     case "input.received":
-      return only(["text"]) ?? text("text", MAX_TEXT_BYTES, true);
+      return only(["text", "branch"]) ?? text("text", MAX_TEXT_BYTES, true) ?? text("branch", 128, false);
     case "session.closed":
       return only(["reason"]) ?? text("reason", 256, false);
     case "tool.call.requested": {

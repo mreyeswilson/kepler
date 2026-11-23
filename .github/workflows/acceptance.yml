@@ -1,0 +1,38 @@
+name: Acceptance (Windows)
+
+# Functional suite against the real release binary: scripts/acceptance.ps1.
+# Vision uses the Microsoft Edge that ships on the runner image. If no browser were present the
+# Vision steps are reported as SKIP (never PASS); -RequireVision makes that a failure instead,
+# which is what this job does: a missing browser must not hide behind a green run.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['adapters/pi/**', 'docs/**']
+  pull_request:
+    paths-ignore: ['adapters/pi/**', 'docs/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance-windows:
+    runs-on: windows-2022
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+      - run: cargo build --release
+      - name: Acceptance suite
+        shell: pwsh
+        run: ./scripts/acceptance.ps1 -RequireVision

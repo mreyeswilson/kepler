@@ -29,8 +29,12 @@ and no sensitive persistence. Playwright is a Node library; the core is Rust and
   selectors and redacted clipped messages are kept. Screenshots are files under `<data dir>/vision/`, never in
   the database; `kepler vision clean` deletes them.
 * The worker is **not** started by the daemon and no event triggers it: the Pi adapter and daemon do not call
-  Vision. `kepler vision check|status|clean` is the only entry point; it stays off until `KEPLER_VISION_WORKER`
-  is set.
+  Vision. `kepler vision setup|check|status|clean` is the only entry point; it stays off until the worker is
+  installed (`kepler vision setup`) or `KEPLER_VISION_WORKER` is set.
+* Update: the worker was run against a real Microsoft Edge on Windows 11 (acceptance suite). It uses an installed
+  browser (`channel` msedge, chrome) before Playwright's bundled Chromium, so no browser download is needed. The
+  worker's TypeScript sources are embedded in the binary and run by Node >= 22.18 type stripping; the only network
+  step is the explicit `npm install` of the pinned `playwright` package.
 
 ## Consequences
 Zero idle cost and a small attack surface, but real-browser behavior, CSS-dependent checks, contrast and

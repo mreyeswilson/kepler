@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { checkUrl, parseAllowedHosts, stripQuery, subRequestAllowed } from "../src/allowlist.ts";
-import { DriverError, mapLaunchError, type BrowserDriver } from "../src/driver.ts";
+import { browserCandidates, DriverError, mapLaunchError, type BrowserDriver } from "../src/driver.ts";
 import { domProbe } from "../src/probe.ts";
 import { encode, errResponse, MAX_RESPONSE_BYTES, parseRequest } from "../src/protocol.ts";
 import { runWorker, sanitizeViewport } from "../src/worker.ts";
@@ -82,6 +82,7 @@ function fakeDriver(over: Partial<BrowserDriver> = {}): BrowserDriver & { calls:
       return state.closed;
     },
     available: async () => true,
+    ensureBrowser: async () => "fakebrowser",
     check: async (url, vp) => {
       state.calls.push(url);
       return {
@@ -253,4 +254,18 @@ test("real Playwright driver: package importable; a check without a browser/page
   } finally {
     await d.close();
   }
+});
+
+test("browserCandidates: auto order, channel and executable overrides", () => {
+  assert.deepEqual(browserCandidates(undefined).map((c) => c.label), ["msedge", "chrome", "chromium"]);
+  assert.deepEqual(browserCandidates("chrome"), [{ label: "chrome", opts: { channel: "chrome" } }]);
+  assert.deepEqual(browserCandidates("C:\Apps\b.exe"), [{ label: "C:\Apps\b.exe", opts: { executablePath: "C:\Apps\b.exe" } }]);
+});
+
+test("worker: hello with launch reports the browser found, or why none", async () => {
+  const ok = await converse(fakeDriver(), [{ v: 1, id: "h", op: "hello", launch: true }]);
+  assert.equal(ok[0].result.browser, "fakebrowser");
+  const none = await converse(fakeDriver({ ensureBrowser: async () => { throw new DriverError("browser_unavailable", "nope"); } }), [{ v: 1, id: "h", op: "hello", launch: true }]);
+  assert.equal(none[0].result.browser, null);
+  assert.equal(none[0].result.browser_error, "nope");
 });

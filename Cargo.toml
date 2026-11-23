@@ -12,13 +12,14 @@ members = [
     "crates/kepler-orbit",
     "crates/kepler-memory",
     "crates/kepler-mcp",
+    "crates/kepler-ui",
     "crates/kepler-ipc",
     "crates/kepler-core",
     "crates/kepler-cli",
 ]
 
 [workspace.package]
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 rust-version = "1.89"
 # MIT (see LICENSE). Crates stay `publish = false` (not published to crates.io).
@@ -42,6 +43,7 @@ kepler-vision = { path = "crates/kepler-vision" }
 kepler-orbit = { path = "crates/kepler-orbit" }
 kepler-memory = { path = "crates/kepler-memory" }
 kepler-mcp = { path = "crates/kepler-mcp" }
+kepler-ui = { path = "crates/kepler-ui" }
 kepler-ipc = { path = "crates/kepler-ipc" }
 kepler-core = { path = "crates/kepler-core" }
 

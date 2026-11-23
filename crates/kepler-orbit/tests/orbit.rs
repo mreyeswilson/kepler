@@ -441,6 +441,22 @@ fn cancel_kills_running_tasks_and_a_second_executor_is_refused() {
         e.orbit.request_cancel(&run).is_err(),
         "nothing left to cancel"
     );
+    // Regression: a cancelled task never recorded its worktree/branch, and cleanup used to skip
+    // it, leaking a prunable worktree registration and the branch.
+    assert!(
+        git(&e.repo, &["branch", "--list", "kepler/orbit/*"]).contains("/kx"),
+        "the cancelled task's branch exists before cleanup"
+    );
+    e.orbit.cleanup(&run, true).unwrap();
+    assert_eq!(
+        git(&e.repo, &["branch", "--list", "kepler/orbit/*"]).trim(),
+        ""
+    );
+    assert_eq!(
+        git(&e.repo, &["worktree", "list"]).lines().count(),
+        1,
+        "only the main worktree remains"
+    );
 }
 
 #[test]

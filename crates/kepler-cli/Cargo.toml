@@ -24,6 +24,7 @@ kepler-mcp.workspace = true
 kepler-sentinel.workspace = true
 kepler-vision.workspace = true
 kepler-orbit.workspace = true
+kepler-ui.workspace = true
 kepler-policy.workspace = true
 clap.workspace = true
 serde_json.workspace = true

@@ -8,7 +8,7 @@ pub struct FocusConfig {
     pub repeat_threshold: u32,
     /// Same failing call (no change in between) this many times.
     pub failure_threshold: u32,
-    /// Consecutive failed tool calls.
+    /// Consecutive failed tool calls with no file change in between.
     pub failure_streak: u32,
     /// Warn when the tool-call count since the last user input reaches this.
     pub soft_tool_calls: u32,
