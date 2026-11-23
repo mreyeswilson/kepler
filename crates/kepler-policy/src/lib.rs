@@ -14,7 +14,9 @@ mod classify;
 mod decision;
 mod engine;
 mod preflight;
+pub mod redact;
 pub mod sensitive;
+pub mod tokens;
 
 pub use classify::{classify_input, InputClass};
 pub use decision::{Decision, Derived, Verdict};
@@ -23,3 +25,4 @@ pub use engine::{
     MAX_STAGES, MAX_TOTAL_DERIVED_BYTES,
 };
 pub use preflight::preflight_tool_call;
+pub use tokens::{estimate_tokens, Basis, ModelFamily, TokenCount};

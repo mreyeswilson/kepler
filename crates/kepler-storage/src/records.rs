@@ -1,7 +1,6 @@
 use crate::redact::redact;
-use crate::StorageError;
 use kepler_events::Envelope;
-use kepler_policy::{sensitive::is_sensitive_path, Decision, Verdict};
+use kepler_policy::{Decision, Verdict};
 
 pub const MAX_MEMORY_BYTES: usize = 4096;
 const MAX_REASON_BYTES: usize = 128;
@@ -45,8 +44,8 @@ impl EventRecord {
     }
 }
 
-/// A memory to store on purpose (future Memory module). Content is redacted
-/// before it reaches the database.
+/// Legacy simple memory record (project scope). Content is redacted before it reaches
+/// the database; new code should use [`crate::NewMemory`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryRecord {
     pub project_id: String,
@@ -55,28 +54,4 @@ pub struct MemoryRecord {
     pub source: String,
     /// Where the fact came from, if a file. Sensitive paths are refused.
     pub source_path: Option<String>,
-}
-
-impl MemoryRecord {
-    /// Validate and redact. Returns the sanitized content to store.
-    pub(crate) fn sanitize(&self) -> Result<String, StorageError> {
-        if let Some(p) = &self.source_path {
-            if is_sensitive_path(p) {
-                return Err(StorageError::Rejected(
-                    "source path is on the sensitive-path denylist",
-                ));
-            }
-        }
-        if self.source != "user" && self.source != "derived" {
-            return Err(StorageError::Rejected("source must be `user` or `derived`"));
-        }
-        if self.content.len() > MAX_MEMORY_BYTES {
-            return Err(StorageError::Rejected("memory too large"));
-        }
-        let clean = redact(&self.content);
-        if clean.trim().is_empty() {
-            return Err(StorageError::Rejected("empty memory"));
-        }
-        Ok(clean)
-    }
 }

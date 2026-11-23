@@ -8,14 +8,24 @@
 
 pub mod dirs;
 mod error;
+mod memory;
 mod migrations;
 mod reader;
 mod records;
-pub mod redact;
+pub mod redact {
+    //! Redaction lives in `kepler-policy` (the Guardian also uses it); re-exported here.
+    pub use kepler_policy::redact::*;
+}
 mod writer;
 
 pub use error::StorageError;
 pub use kepler_policy::sensitive::{is_sensitive_path, resolve_within, PathError};
+pub use memory::{
+    apply_retention, content_hash, fts_query, jaccard, mark_used, purge_memories, record_metric,
+    set_setting, store_memory, tokens, Candidate, MemoryFilter, MemoryQuery, MemoryRow,
+    MemoryStats, MetricRow, NewMemory, PurgeFilter, Scope, SourceRow, StoreOutcome,
+    MAX_MEMORY_TEXT_BYTES, TRUST_DERIVED, TRUST_USER,
+};
 pub use migrations::{migrate, LATEST_VERSION};
 pub use reader::{inspect, DbStatus, MemoryHit, Reader, StoredEvent};
 pub use records::{EventRecord, MemoryRecord, MAX_MEMORY_BYTES};

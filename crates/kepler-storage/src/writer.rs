@@ -1,5 +1,6 @@
 //! The single write coordinator: one thread owns the only writable connection.
 
+use crate::memory::{store_memory, NewMemory};
 use crate::records::{EventRecord, MemoryRecord};
 use crate::{open_rw, StorageError};
 use rusqlite::{Connection, Transaction};
@@ -30,16 +31,15 @@ impl Default for WriterConfig {
     }
 }
 
-type MemoryResult = Result<i64, StorageError>;
-type MemoryReply = SyncSender<MemoryResult>;
+/// A unit of work run on the writer thread inside its own savepoint: `true` commits the
+/// savepoint, `false` rolls it back. The returned `Finish` runs after the batch transaction
+/// committed (`true`) or failed (`false`), so callers never see a result before it is durable.
+type Finish = Box<dyn FnOnce(bool) + Send>;
+type Job = Box<dyn FnOnce(&Connection) -> (bool, Finish) + Send>;
 
 enum Cmd {
     Event(Box<EventRecord>),
-    Memory {
-        content: String,
-        rec: Box<MemoryRecord>,
-        reply: SyncSender<Result<i64, StorageError>>,
-    },
+    Job(Job),
     Flush(SyncSender<()>),
 }
 
@@ -89,17 +89,64 @@ impl Writer {
     /// Store a memory (redacted, path-checked) and return its row id.
     /// Blocks the calling thread up to `timeout`; call from a blocking context.
     pub fn add_memory(&self, rec: MemoryRecord, timeout: Duration) -> Result<i64, StorageError> {
-        let content = rec.sanitize()?;
+        let mut m = NewMemory::new(&rec.project_id, &rec.content, &rec.source);
+        m.source_path = rec.source_path.clone();
+        m.source_kind = "api".into();
+        self.store(m, timeout).map(|o| o.id())
+    }
+
+    /// Sanitize (redact, path-check) and store a memory with dedupe/supersession.
+    /// Blocks the calling thread up to `timeout`; call from a blocking context.
+    pub fn store(
+        &self,
+        m: NewMemory,
+        timeout: Duration,
+    ) -> Result<crate::memory::StoreOutcome, StorageError> {
+        let content = m.sanitize()?;
+        self.exec(timeout, move |conn| store_memory(conn, &m, &content))
+    }
+
+    /// Run `f` on the writer thread (atomically, in its own savepoint) and wait for its result.
+    pub fn exec<T, F>(&self, timeout: Duration, f: F) -> Result<T, StorageError>
+    where
+        T: Send + 'static,
+        F: FnOnce(&Connection) -> Result<T, StorageError> + Send + 'static,
+    {
         let (reply, wait) = sync_channel(1);
         let tx = self.tx.as_ref().ok_or(StorageError::WriterUnavailable)?;
-        tx.try_send(Cmd::Memory {
-            content,
-            rec: Box::new(rec),
-            reply,
-        })
-        .map_err(|_| StorageError::WriterUnavailable)?;
+        let job: Job = Box::new(move |conn| {
+            let res = f(conn);
+            let ok = res.is_ok();
+            let finish: Finish = Box::new(move |committed| {
+                let _ = reply.send(if committed {
+                    res
+                } else {
+                    Err(StorageError::WriterUnavailable)
+                });
+            });
+            (ok, finish)
+        });
+        tx.try_send(Cmd::Job(job))
+            .map_err(|_| StorageError::WriterUnavailable)?;
         wait.recv_timeout(timeout)
             .map_err(|_| StorageError::WriterUnavailable)?
+    }
+
+    /// Fire-and-forget variant of [`Writer::exec`]: never blocks, drops (and counts) when the
+    /// queue is full. For optional bookkeeping such as metrics and usage counters.
+    pub fn submit<F>(&self, f: F) -> bool
+    where
+        F: FnOnce(&Connection) -> Result<(), StorageError> + Send + 'static,
+    {
+        let Some(tx) = &self.tx else { return false };
+        let job: Job = Box::new(move |conn| (f(conn).is_ok(), Box::new(|_| {})));
+        match tx.try_send(Cmd::Job(job)) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+                false
+            }
+        }
     }
 
     /// Wait until everything queued before this call is committed.
@@ -170,15 +217,16 @@ fn run(mut conn: Connection, rx: Receiver<Cmd>, cfg: WriterConfig, failed: Arc<A
             }
         }
         let mut flushes = Vec::new();
-        let mut replies: Vec<(MemoryReply, MemoryResult)> = Vec::new();
+        let mut finishers: Vec<Finish> = Vec::new();
         let mut events_written = 0u64;
         match conn.transaction() {
             Err(_) => {
                 failed.fetch_add(batch.len() as u64, Ordering::Relaxed);
                 for c in batch {
                     match c {
-                        Cmd::Memory { reply, .. } => {
-                            let _ = reply.send(Err(StorageError::WriterUnavailable));
+                        Cmd::Job(job) => {
+                            // Not run: tell the caller the writer could not take it.
+                            drop(job);
                         }
                         Cmd::Flush(r) => {
                             let _ = r.send(());
@@ -188,7 +236,7 @@ fn run(mut conn: Connection, rx: Receiver<Cmd>, cfg: WriterConfig, failed: Arc<A
                 }
                 continue;
             }
-            Ok(tx) => {
+            Ok(mut tx) => {
                 for c in batch {
                     match c {
                         Cmd::Event(rec) => match insert_event(&tx, &rec) {
@@ -197,26 +245,32 @@ fn run(mut conn: Connection, rx: Receiver<Cmd>, cfg: WriterConfig, failed: Arc<A
                                 failed.fetch_add(1, Ordering::Relaxed);
                             }
                         },
-                        Cmd::Memory {
-                            content,
-                            rec,
-                            reply,
-                        } => {
-                            replies.push((reply, insert_memory(&tx, &rec, &content)));
-                        }
+                        Cmd::Job(job) => match tx.savepoint() {
+                            Ok(mut sp) => {
+                                let (ok, finish) = job(&sp);
+                                if ok {
+                                    let _ = sp.commit();
+                                } else {
+                                    let _ = sp.rollback();
+                                    failed.fetch_add(1, Ordering::Relaxed);
+                                }
+                                finishers.push(finish);
+                            }
+                            Err(_) => {
+                                failed.fetch_add(1, Ordering::Relaxed);
+                            }
+                        },
                         Cmd::Flush(r) => flushes.push(r),
                     }
                 }
-                if tx.commit().is_err() {
+                let committed = tx.commit().is_ok();
+                if !committed {
                     failed.fetch_add(1, Ordering::Relaxed);
-                    replies
-                        .iter_mut()
-                        .for_each(|(_, r)| *r = Err(StorageError::WriterUnavailable));
+                }
+                for f in finishers.drain(..) {
+                    f(committed);
                 }
             }
-        }
-        for (reply, res) in replies {
-            let _ = reply.send(res);
         }
         for f in flushes {
             let _ = f.send(());
@@ -264,16 +318,4 @@ fn insert_event(tx: &Transaction<'_>, r: &EventRecord) -> rusqlite::Result<u64> 
         )?;
     }
     Ok(inserted as u64)
-}
-
-fn insert_memory(
-    tx: &Transaction<'_>,
-    rec: &MemoryRecord,
-    content: &str,
-) -> Result<i64, StorageError> {
-    tx.execute(
-        "INSERT INTO memories (project_id, content, source) VALUES (?1, ?2, ?3)",
-        rusqlite::params![rec.project_id, content, rec.source],
-    )?;
-    Ok(tx.last_insert_rowid())
 }

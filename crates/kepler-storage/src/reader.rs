@@ -25,6 +25,15 @@ pub struct StoredEvent {
 }
 
 impl Reader {
+    pub(crate) fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_connection(conn: Connection) -> Self {
+        Self { conn }
+    }
+
     pub fn open(path: &Path) -> Result<Self, StorageError> {
         let conn = Connection::open_with_flags(
             path,
