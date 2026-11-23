@@ -1,5 +1,5 @@
 use crate::classify::{classify_input, InputClass};
-use crate::decision::{Decision, Derived, Verdict};
+use crate::decision::{Advisory, Decision, Derived, Verdict};
 use crate::guardian::Guardian;
 use crate::tokens::{estimate_tokens, ModelFamily};
 use kepler_events::{ContextRequested, Envelope, Payload};
@@ -8,6 +8,9 @@ use std::time::{Duration, Instant};
 
 pub const MAX_MODULES: usize = 16;
 pub const MAX_STAGES: usize = 4;
+/// Advisories kept per verdict, and the length of each message.
+pub const MAX_ADVISORIES: usize = 4;
+pub const MAX_ADVISORY_CHARS: usize = 240;
 const MAX_DERIVED_BYTES: usize = 8 * 1024;
 /// Hard cap for all derived text of one verdict (applies even when a stage fails).
 pub const MAX_TOTAL_DERIVED_BYTES: usize = 16 * 1024;
@@ -75,6 +78,11 @@ pub trait OptionalModule: Send + Sync {
     /// (settlement, memory candidates, session close, ...). Observation only.
     fn on_observe(&self, _event: &Envelope) -> Result<(), ModuleError> {
         Ok(())
+    }
+    /// Supervision notes for any event (Focus, Sentinel). Called after the verdict was decided,
+    /// for every event kind, inside the same time budget. Notes never change the decision.
+    fn advise(&self, _event: &Envelope) -> Result<Vec<Advisory>, ModuleError> {
+        Ok(Vec::new())
     }
 }
 
@@ -147,6 +155,41 @@ impl PolicyEngine {
 
     /// Evaluate one validated event. Infallible by construction.
     pub fn evaluate(&self, event: &Envelope) -> Verdict {
+        let mut verdict = self.decide(event);
+        self.collect_advisories(event, &mut verdict);
+        verdict
+    }
+
+    fn collect_advisories(&self, event: &Envelope, verdict: &mut Verdict) {
+        let start = Instant::now();
+        for m in &self.modules {
+            if start.elapsed() >= self.budget {
+                note(
+                    &mut verdict.degraded,
+                    format!("{}: advice skipped, budget exhausted", m.name()),
+                );
+                break;
+            }
+            match catch_unwind(AssertUnwindSafe(|| m.advise(event))) {
+                Err(_) => note(&mut verdict.degraded, format!("{}: panicked", m.name())),
+                Ok(Err(e)) => note(
+                    &mut verdict.degraded,
+                    format!("{}: error: {}", m.name(), clip(&e.0)),
+                ),
+                Ok(Ok(items)) => {
+                    for mut a in items {
+                        if verdict.advisories.len() >= MAX_ADVISORIES {
+                            break;
+                        }
+                        a.message = a.message.chars().take(MAX_ADVISORY_CHARS).collect();
+                        verdict.advisories.push(a);
+                    }
+                }
+            }
+        }
+    }
+
+    fn decide(&self, event: &Envelope) -> Verdict {
         match &event.payload {
             Payload::ToolCallRequested(call) => {
                 // Security boundary: no verdict (panic) => deny, never passthrough.
@@ -206,6 +249,7 @@ impl PolicyEngine {
             decision: Decision::passthrough("observe_only"),
             degraded,
             estimated_tokens: None,
+            advisories: Vec::new(),
         }
     }
 
@@ -271,6 +315,7 @@ impl PolicyEngine {
                 decision: Decision::passthrough("no_enrichment"),
                 degraded,
                 estimated_tokens: None,
+                advisories: Vec::new(),
             };
         }
         let tokens: u32 = derived
@@ -281,6 +326,7 @@ impl PolicyEngine {
             decision: Decision::Enrich { derived },
             degraded,
             estimated_tokens: Some(tokens),
+            advisories: Vec::new(),
         }
     }
 }

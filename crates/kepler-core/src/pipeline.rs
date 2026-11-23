@@ -5,6 +5,7 @@
 //! Modules are optional: a disabled or unavailable module is simply not registered, and
 //! any runtime failure degrades to the original input (see ADR-0009).
 
+use kepler_focus::{FocusConfig, FocusModule};
 use kepler_forge::ForgeModule;
 use kepler_memory::{MemoryConfig, MemoryModule, MemoryService};
 use kepler_policy::{BudgetStage, Guardian, GuardianRules, PolicyEngine};
@@ -19,6 +20,9 @@ pub const MODULE_BUDGET: Duration = Duration::from_millis(100);
 #[derive(Debug, Clone)]
 pub struct PipelineConfig {
     pub forge: bool,
+    /// Focus supervision advisories (ADR-0014). Optional, fail-safe, never blocks.
+    pub focus: bool,
+    pub focus_config: FocusConfig,
     pub memory: bool,
     /// Context budget stage. The security preflight is always on and cannot be disabled.
     pub guardian_budget: bool,
@@ -32,6 +36,8 @@ impl Default for PipelineConfig {
     fn default() -> Self {
         Self {
             forge: true,
+            focus: true,
+            focus_config: FocusConfig::default(),
             memory: true,
             guardian_budget: true,
             guardian_rules: GuardianRules::default(),
@@ -56,6 +62,8 @@ impl PipelineConfig {
         let (guardian_rules, warnings) = load_guardian_rules();
         Self {
             forge: !off("KEPLER_FORGE"),
+            focus: !off("KEPLER_FOCUS"),
+            focus_config: FocusConfig::from_env(),
             memory: !memory_config.force_disabled,
             guardian_budget: !off("KEPLER_GUARDIAN_BUDGET"),
             guardian_rules,
@@ -115,6 +123,9 @@ pub fn build_engine(cfg: &PipelineConfig, storage: MemoryStorage) -> PolicyEngin
             engine.register(Box::new(MemoryModule::new(service)));
         }
     }
+    if cfg.focus {
+        engine.register(Box::new(FocusModule::new(cfg.focus_config.clone())));
+    }
     if cfg.guardian_budget {
         engine.register_stage(Box::new(BudgetStage::default()));
     }
@@ -132,11 +143,12 @@ mod tests {
         let path = d.join("k.db");
         let w = Arc::new(Writer::start(&path, Default::default()).unwrap());
         let e = build_engine(&PipelineConfig::default(), Some((w.clone(), path.clone())));
-        assert_eq!(e.pipeline(), vec!["forge", "memory", "guardian"]);
+        assert_eq!(e.pipeline(), vec!["forge", "memory", "focus", "guardian"]);
         let e = build_engine(&PipelineConfig::default(), None);
-        assert_eq!(e.pipeline(), vec!["forge", "guardian"]);
+        assert_eq!(e.pipeline(), vec!["forge", "focus", "guardian"]);
         let cfg = PipelineConfig {
             forge: false,
+            focus: false,
             memory: false,
             guardian_budget: false,
             ..PipelineConfig::default()

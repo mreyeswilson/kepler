@@ -333,3 +333,27 @@ async fn token_metrics_are_labeled_estimated_or_measured() {
     r.stop.send(()).unwrap();
     r.task.await.unwrap();
 }
+
+#[tokio::test]
+async fn focus_advisories_travel_with_the_verdict_and_can_be_disabled() {
+    for (focus, expect) in [(true, true), (false, false)] {
+        let r = start_with(|c| c.pipeline.focus = focus);
+        let mut c = client(&r.ep).await;
+        let mut codes: Vec<String> = Vec::new();
+        for i in 0..5 {
+            let ev = event(
+                &format!("t{i}"),
+                "sf",
+                "tool.call.requested",
+                json!({"tool": "bash", "command": "cargo test"}),
+            );
+            let v = c.send_event_value(ev).await.unwrap();
+            assert!(v.decision.is_passthrough(), "{:?}", v.decision);
+            codes.extend(v.advisories.into_iter().map(|a| a.code));
+        }
+        let found = codes.iter().any(|c| c == "loop.repeated_call");
+        assert_eq!(found, expect, "{codes:?}");
+        let _ = r.stop.send(());
+        let _ = r.task.await;
+    }
+}

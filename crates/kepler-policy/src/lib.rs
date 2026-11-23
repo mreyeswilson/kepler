@@ -20,7 +20,7 @@ pub mod sensitive;
 pub mod tokens;
 
 pub use classify::{classify_input, InputClass};
-pub use decision::{Decision, Derived, Verdict};
+pub use decision::{Advisory, AdvisoryLevel, Decision, Derived, Verdict};
 pub use engine::{
     Enrichment, ModuleError, OptionalModule, OutputStage, PolicyEngine, Provenance, MAX_MODULES,
     MAX_STAGES, MAX_TOTAL_DERIVED_BYTES,

@@ -164,6 +164,7 @@ name = "kepler-core"
 version = "0.0.1"
 dependencies = [
  "kepler-events",
+ "kepler-focus",
  "kepler-forge",
  "kepler-ipc",
  "kepler-memory",
@@ -179,6 +180,15 @@ name = "kepler-events"
 version = "0.0.1"
 dependencies = [
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "kepler-focus"
+version = "0.0.1"
+dependencies = [
+ "kepler-events",
+ "kepler-policy",
  "serde_json",
 ]
 

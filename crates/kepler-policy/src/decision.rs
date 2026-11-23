@@ -57,6 +57,44 @@ impl Decision {
     }
 }
 
+/// How strongly an [`Advisory`] asks for attention. Advisories never block anything by
+/// themselves: blocking is reserved for the Guardian preflight (`deny` / `require_approval`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdvisoryLevel {
+    Info,
+    Warn,
+    /// Kepler suggests the agent stop and report. A harness may ignore it; nothing is cancelled.
+    RecommendStop,
+}
+
+/// Non-blocking supervision note (Focus, Sentinel). Additive wire field (ADR-0014); text is
+/// Kepler-generated, bounded and never contains user prompt text or tool output.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Advisory {
+    pub source: String,
+    pub level: AdvisoryLevel,
+    /// Stable machine code such as `loop.repeated_failure`.
+    pub code: String,
+    pub message: String,
+}
+
+impl Advisory {
+    pub fn new(
+        source: impl Into<String>,
+        level: AdvisoryLevel,
+        code: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            source: source.into(),
+            level,
+            code: code.into(),
+            message: message.into(),
+        }
+    }
+}
+
 /// A decision plus any optional-module degradations that were swallowed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Verdict {
@@ -67,6 +105,9 @@ pub struct Verdict {
     /// Kepler's own *estimate* of the tokens in `derived` (never a measurement). Only on `enrich`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimated_tokens: Option<u32>,
+    /// Non-blocking supervision notes (additive, omitted when empty).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub advisories: Vec<Advisory>,
 }
 
 impl Verdict {
@@ -75,6 +116,7 @@ impl Verdict {
             decision,
             degraded: Vec::new(),
             estimated_tokens: None,
+            advisories: Vec::new(),
         }
     }
 }
@@ -96,6 +138,12 @@ mod tests {
             decision: Decision::Deny { reason: "x".into() },
             degraded: vec!["m: failed".into()],
             estimated_tokens: Some(12),
+            advisories: vec![Advisory::new(
+                "focus",
+                AdvisoryLevel::Warn,
+                "loop.repeated_call",
+                "x",
+            )],
         };
         let back: Verdict = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
         assert_eq!(back, d);

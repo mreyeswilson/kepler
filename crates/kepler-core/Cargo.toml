@@ -15,6 +15,7 @@ kepler-events.workspace = true
 kepler-policy.workspace = true
 kepler-storage.workspace = true
 kepler-forge.workspace = true
+kepler-focus.workspace = true
 kepler-memory.workspace = true
 kepler-ipc.workspace = true
 serde.workspace = true

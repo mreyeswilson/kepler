@@ -1,6 +1,6 @@
 # Kepler Focus — central execution control
 
-**Status:** specification only; not implemented.
+**Status:** implemented in `kepler-focus` as non-blocking advisories (see [ADR-0014](../decisions/0014-focus-implementation.md)). Thresholds are uncalibrated; no benchmark has been run.
 
 ## Mission
 Keep coding agents aligned with the original user request, grounded in evidence, minimal in scope and efficient in time/tools. Focus is a deterministic-first policy system, not another LLM agent.

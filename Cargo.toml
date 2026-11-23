@@ -5,6 +5,7 @@ members = [
     "crates/kepler-policy",
     "crates/kepler-storage",
     "crates/kepler-forge",
+    "crates/kepler-focus",
     "crates/kepler-memory",
     "crates/kepler-mcp",
     "crates/kepler-ipc",
@@ -30,6 +31,7 @@ kepler-events = { path = "crates/kepler-events" }
 kepler-policy = { path = "crates/kepler-policy" }
 kepler-storage = { path = "crates/kepler-storage" }
 kepler-forge = { path = "crates/kepler-forge" }
+kepler-focus = { path = "crates/kepler-focus" }
 kepler-memory = { path = "crates/kepler-memory" }
 kepler-mcp = { path = "crates/kepler-mcp" }
 kepler-ipc = { path = "crates/kepler-ipc" }
