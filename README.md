@@ -21,7 +21,7 @@ Infraestructura: eventos v1 con fixtures, 8 capacidades negociadas ([ADR-0002](d
 
 ## Instalación (Install)
 
-> **Aún no existe ningún release.** Los instaladores descargan binarios del GitHub Release; hasta que se publique el primer tag `vX.Y.Z` fallarán con un error claro (no hay `SHA256SUMS`). Los instaladores y su verificación de checksums se probaron solo contra un release simulado en local, no contra uno real.
+> Los instaladores descargan los binarios del último GitHub Release publicado y verifican su SHA-256. Los one-liners funcionan sin token mientras el repo sea público.
 
 ### Instalador de una línea (Linux / macOS, x86_64 y aarch64)
 
@@ -54,11 +54,29 @@ Cada release publica `kepler-<versión>-<target>.tar.gz` (`.zip` en Windows) y `
 ```sh
 # 1. checksum
 sha256sum --check --ignore-missing SHA256SUMS          # macOS: shasum -a 256 -c --ignore-missing SHA256SUMS
-# 2. atestación de procedencia (GitHub CLI)
+# 2. atestación de procedencia (GitHub CLI) — solo si el release se construyó desde un repo no privado
 gh attestation verify kepler-X.Y.Z-<target>.tar.gz --repo mreyeswilson/kepler
 ```
 
-Los binarios no están firmados/notarizados (Gatekeeper / SmartScreen pueden avisar); la integridad la dan `SHA256SUMS` y la atestación. Proceso de release: [RELEASING.md](RELEASING.md).
+Los binarios no están firmados/notarizados (Gatekeeper / SmartScreen pueden avisar); la integridad la dan `SHA256SUMS` y, en releases construidos desde un repo público, la atestación (GitHub no ofrece atestaciones en repos privados de usuario, así que los releases hechos mientras el repo es privado no la tienen y `gh attestation verify` no aplica). Proceso de release: [RELEASING.md](RELEASING.md).
+
+### Nota: probar con el repo privado
+
+Solo si el repo vuelve a ser privado: los one-liners `irm`/`curl` desde `raw.githubusercontent.com` **no funcionan** (404 sin autenticación). Usa el instalador desde tu checkout local; si hay token, descarga los assets por la API de GitHub (`api.github.com`, solo HTTPS) y **sigue verificando el SHA-256**. El token se busca en `KEPLER_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN` y, como último recurso, `gh auth token`; solo se envía a `api.github.com`, nunca se imprime ni se guarda.
+
+```powershell
+# Windows (PowerShell), desde el checkout local
+$env:KEPLER_GITHUB_TOKEN = (gh auth token)
+$env:KEPLER_INSTALL_DIR = "$env:TEMP\kepler-prueba"   # opcional; no toca el PATH
+.\install.ps1
+```
+
+```sh
+# Linux / macOS
+KEPLER_GITHUB_TOKEN="$(gh auth token)" sh install.sh
+```
+
+Sin token el comportamiento es el de siempre (descarga pública).
 
 ### Desde el código fuente
 

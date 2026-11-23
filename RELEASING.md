@@ -26,7 +26,7 @@ Steps:
 3. Optional dry run: Actions -> "Release binaries" -> Run workflow (builds, packages and prints checksums in the log only; nothing is uploaded, attested or released).
 4. `git tag vX.Y.Z && git push origin vX.Y.Z` (or `git push --tags`). The tag must equal the `kepler-cli` version; the
    preflight job fails otherwise (and for non-semver tags).
-5. The workflow builds 5 targets, smoke-tests (`kepler version`), packages, attests provenance
+5. The workflow builds 5 targets, smoke-tests (`kepler version`), packages, attests provenance (only when the repo is not private)
    (`actions/attest-build-provenance`) and uploads each package straight to a DRAFT GitHub Release created by preflight
    (`gh release upload`; no workflow artifacts, so the Actions artifact storage quota is not used). The final job builds
    `SHA256SUMS` from the per-package checksums, uploads it and un-drafts the release.
@@ -35,7 +35,7 @@ Steps:
    runs in the GitHub environment `release`: if you want a manual approval gate, add required reviewers to that
    environment (Settings -> Environments); without rules it publishes immediately. Create the environment and (optionally)
    restrict it to tags `v*` once.
-7. Consumers verify with `sha256sum --check --ignore-missing SHA256SUMS` and `gh attestation verify <archive> --repo <owner>/<repo>`.
+7. Consumers verify with `sha256sum --check --ignore-missing SHA256SUMS` and, only for releases built from a non-private repository, `gh attestation verify <archive> --repo <owner>/<repo>`. GitHub does not offer attestations for user-owned private repositories, so the workflow skips them there (with a `::notice::`); upload and publish do not depend on them. Installing from a private repo: see the README section "Probar con el repo privado".
 
 Caveats: binaries are not code-signed or notarized (macOS Gatekeeper / Windows SmartScreen will warn). Never move or
 re-push a release tag; cut a new version instead. The workflow does not check that the tag is on `main`: tag from `main`.

@@ -74,5 +74,51 @@ echo "$out" | grep -q "aarch64-apple-darwin" && [ -x "$inst/kepler" ] && ok "mac
 sh "$root/install.sh" --help | grep -q "Usage:" && ok "--help" || ko "--help"
 inst="$work/i1"; run --uninstall >/dev/null 2>&1; [ ! -e "$inst/kepler" ] && ok "--uninstall removes binary" || ko "--uninstall"
 
+
+# 9. token mode: assets via a simulated GitHub API (file:// API base; no KEPLER_BASE_URL)
+fileurl() { case "$(uname -s)" in MINGW* | MSYS*) echo "file:///$(cd "$1" && pwd -W)" ;; *) echo "file://$1" ;; esac; }
+mkapi() { # mkapi DIR RELDIR [skip-asset] : write repos/mreyeswilson/kepler/releases/{latest,tags/v9.9.9} + assets
+  a="$1"; r="$2"; mkdir -p "$a"; au="$(fileurl "$a")"
+  mkdir -p "$a/repos/mreyeswilson/kepler/releases/tags" "$a/repos/mreyeswilson/kepler/releases/assets"
+  id=100; json='{"url": "'"$au"'/repos/mreyeswilson/kepler/releases/1", "name": "Kepler v9.9.9", "tag_name": "v9.9.9", "assets": ['
+  sep=""
+  for f in "$r"/*; do
+    n="$(basename "$f")"; id=$((id + 1))
+    [ "${3:-}" = "$n" ] && continue
+    cp "$f" "$a/repos/mreyeswilson/kepler/releases/assets/$id"
+    json="$json$sep"'
+  {"url": "'"$au"'/repos/mreyeswilson/kepler/releases/assets/'"$id"'", "id": '"$id"', "node_id": "X", "name": "'"$n"'", "label": "", "uploader": {"login": "u", "url": "'"$au"'/users/u"}, "content_type": "application/octet-stream"}'
+    sep=","
+  done
+  printf '%s\n]}\n' "$json" > "$a/repos/mreyeswilson/kepler/releases/latest"
+  cp "$a/repos/mreyeswilson/kepler/releases/latest" "$a/repos/mreyeswilson/kepler/releases/tags/v9.9.9"
+}
+api="$work/api"; mkapi "$api" "$rel"; apiurl="$(fileurl "$api")"
+runtok() { env -u KEPLER_BASE_URL KEPLER_API_URL="$apiurl" KEPLER_GITHUB_TOKEN="ghp_TESTTOKEN123" KEPLER_INSTALL_DIR="$inst" KEPLER_OS=Linux KEPLER_ARCH=x86_64 sh "$root/install.sh" "$@"; }
+inst="$work/i9"; out="$(runtok 2>&1)"; rc=$?
+if [ $rc -eq 0 ] && [ -x "$inst/kepler" ] && echo "$out" | grep -q "GitHub API" && echo "$out" | grep -q "SHA-256 verified"; then ok "token: latest via API installs"; else ko "token latest: rc=$rc $out"; fi
+echo "$out" | grep -q "ghp_TESTTOKEN123" && ko "token is printed" || ok "token never printed"
+inst="$work/i9b"; out="$(runtok --version 9.9.9 2>&1)"; rc=$?
+[ $rc -eq 0 ] && [ -x "$inst/kepler" ] && ok "token: --version via API" || ko "token --version: $out"
+# GH_TOKEN is also accepted
+inst="$work/i9c"; out="$(env -u KEPLER_BASE_URL -u KEPLER_GITHUB_TOKEN GH_TOKEN="ghp_OTHER" KEPLER_API_URL="$apiurl" KEPLER_INSTALL_DIR="$inst" KEPLER_OS=Linux KEPLER_ARCH=x86_64 sh "$root/install.sh" 2>&1)"; rc=$?
+[ $rc -eq 0 ] && [ -x "$inst/kepler" ] && ok "token: GH_TOKEN accepted" || ko "GH_TOKEN: $out"
+# checksum still mandatory in token mode
+apibad="$work/apibad"; badrel="$work/badrel"; cp -r "$rel" "$badrel"; echo junk >> "$badrel/kepler-9.9.9-x86_64-unknown-linux-gnu.tar.gz"
+mkapi "$apibad" "$badrel"; inst="$work/i9d"
+out="$(env -u KEPLER_BASE_URL KEPLER_API_URL="$(fileurl "$apibad")" KEPLER_GITHUB_TOKEN="ghp_T" KEPLER_INSTALL_DIR="$inst" KEPLER_OS=Linux KEPLER_ARCH=x86_64 sh "$root/install.sh" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && [ ! -e "$inst/kepler" ] && echo "$out" | grep -q "mismatch" && ok "token: tampered archive fails" || ko "token tampered: $out"
+# missing asset fails clearly
+apimiss="$work/apimiss"; mkapi "$apimiss" "$rel" SHA256SUMS; inst="$work/i9e"
+out="$(env -u KEPLER_BASE_URL KEPLER_API_URL="$(fileurl "$apimiss")" KEPLER_GITHUB_TOKEN="ghp_T" KEPLER_INSTALL_DIR="$inst" KEPLER_OS=Linux KEPLER_ARCH=x86_64 sh "$root/install.sh" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && [ ! -e "$inst/kepler" ] && ok "token: missing SHA256SUMS asset fails" || ko "token missing asset: $out"
+# a non-GitHub https API base is refused (token must never go elsewhere)
+inst="$work/i9f"
+out="$(env -u KEPLER_BASE_URL KEPLER_API_URL="https://evil.invalid" KEPLER_GITHUB_TOKEN="ghp_T" KEPLER_INSTALL_DIR="$inst" KEPLER_OS=Linux KEPLER_ARCH=x86_64 sh "$root/install.sh" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && echo "$out" | grep -q "KEPLER_API_URL must be" && ok "token: foreign API host refused" || ko "foreign API: $out"
+# KEPLER_BASE_URL set => token ignored, public path
+inst="$work/i9g"; out="$(KEPLER_GITHUB_TOKEN="ghp_T" run 2>&1)"; rc=$?
+[ $rc -eq 0 ] && ! echo "$out" | grep -q "GitHub API" && ok "token ignored with KEPLER_BASE_URL" || ko "base url + token: $out"
+
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]
