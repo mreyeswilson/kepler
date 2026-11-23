@@ -20,3 +20,4 @@ New ADR format: Context, Decision, Consequences, Alternatives, Status.
 - [ADR-0014: Focus implementation](0014-focus-implementation.md) (implemented in `kepler-focus`)
 - [ADR-0015: Sentinel and audit findings](0015-sentinel-and-findings.md) (implemented in `kepler-sentinel`, `kepler-git`)
 - [ADR-0016: Vision worker](0016-vision-worker.md) (implemented in `kepler-vision`, `workers/vision`)
+- [ADR-0017: Orbit DAG scheduler](0017-orbit-dag-scheduler.md) (implemented in `kepler-orbit`)

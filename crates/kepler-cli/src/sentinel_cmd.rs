@@ -57,7 +57,7 @@ fn parse_severity(s: &str) -> Result<Severity, String> {
     Severity::parse(s).ok_or_else(|| "expected info|low|medium|high|critical".to_string())
 }
 
-fn project_for(repo: &std::path::Path) -> String {
+pub(crate) fn project_for(repo: &std::path::Path) -> String {
     let canon = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in canon.to_string_lossy().bytes() {

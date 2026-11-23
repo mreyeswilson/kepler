@@ -5,6 +5,7 @@ mod detach;
 mod inspect;
 mod mcp_cmd;
 mod memory_cmd;
+mod orbit_cmd;
 mod sentinel_cmd;
 mod vision_cmd;
 
@@ -96,6 +97,11 @@ enum Command {
         #[command(subcommand)]
         cmd: vision_cmd::VisionCmd,
     },
+    /// Run a DAG of command tasks in isolated git worktrees, with approval checkpoints.
+    Orbit {
+        #[command(subcommand)]
+        cmd: orbit_cmd::OrbitCmd,
+    },
     /// Print version information.
     Version {
         #[arg(long)]
@@ -128,6 +134,7 @@ fn main() -> ExitCode {
         Command::Memory { cmd } => memory_cmd::run(cmd),
         Command::Sentinel { cmd } => sentinel_cmd::run(cmd),
         Command::Vision { cmd } => vision_cmd::run(cmd),
+        Command::Orbit { cmd } => orbit_cmd::run(cmd),
         Command::Mcp { cmd: McpCmd::Serve } => mcp_cmd::serve(),
         Command::Inspect { limit } => match inspect::inspect_value(limit) {
             Ok(v) => {

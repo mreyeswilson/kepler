@@ -11,6 +11,7 @@ mod error;
 mod findings;
 mod memory;
 mod migrations;
+mod orbit;
 mod reader;
 mod records;
 pub mod redact {
@@ -32,11 +33,15 @@ pub use memory::{
     MAX_MEMORY_TEXT_BYTES, TRUST_DERIVED, TRUST_USER,
 };
 pub use migrations::{migrate, LATEST_VERSION};
+pub use orbit::{
+    create_run, delete_run, get_run, list_runs, load_tasks, resolve_approval, set_run_status,
+    update_task, NewRun, NewTask, RunRow, TaskPatch, TaskRow, MAX_TASKS_PER_RUN,
+};
 pub use reader::{inspect, DbStatus, MemoryHit, Reader, StoredEvent};
 pub use records::{EventRecord, MemoryRecord, MAX_MEMORY_BYTES};
 pub use writer::{Writer, WriterConfig};
 
-use rusqlite::Connection;
+pub use rusqlite::Connection;
 use std::path::Path;
 use std::time::Duration;
 

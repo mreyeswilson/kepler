@@ -9,6 +9,7 @@ members = [
     "crates/kepler-git",
     "crates/kepler-sentinel",
     "crates/kepler-vision",
+    "crates/kepler-orbit",
     "crates/kepler-memory",
     "crates/kepler-mcp",
     "crates/kepler-ipc",
@@ -38,6 +39,7 @@ kepler-focus = { path = "crates/kepler-focus" }
 kepler-git = { path = "crates/kepler-git" }
 kepler-sentinel = { path = "crates/kepler-sentinel" }
 kepler-vision = { path = "crates/kepler-vision" }
+kepler-orbit = { path = "crates/kepler-orbit" }
 kepler-memory = { path = "crates/kepler-memory" }
 kepler-mcp = { path = "crates/kepler-mcp" }
 kepler-ipc = { path = "crates/kepler-ipc" }

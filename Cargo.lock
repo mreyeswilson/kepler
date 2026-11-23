@@ -154,6 +154,8 @@ dependencies = [
  "kepler-ipc",
  "kepler-mcp",
  "kepler-memory",
+ "kepler-orbit",
+ "kepler-policy",
  "kepler-sentinel",
  "kepler-storage",
  "kepler-vision",
@@ -233,6 +235,18 @@ dependencies = [
  "kepler-forge",
  "kepler-policy",
  "kepler-storage",
+ "serde_json",
+]
+
+[[package]]
+name = "kepler-orbit"
+version = "0.0.1"
+dependencies = [
+ "kepler-events",
+ "kepler-git",
+ "kepler-policy",
+ "kepler-storage",
+ "serde",
  "serde_json",
 ]
 

@@ -147,6 +147,53 @@ CREATE TABLE audit_findings (
 CREATE INDEX audit_findings_project ON audit_findings (project_id, status, id);
 "#,
     ),
+    (
+        4,
+        "orbit_tasks",
+        r#"
+-- Orbit (task DAG scheduler). Commands are stored as an argv JSON array (the planner refuses
+-- secrets in them); outputs are never stored: only exit codes and a short redacted error.
+CREATE TABLE orbit_runs (
+    run_id       TEXT PRIMARY KEY,
+    project_id   TEXT NOT NULL,
+    repo_path    TEXT NOT NULL,
+    base_ref     TEXT NOT NULL,
+    name         TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    max_parallel INTEGER NOT NULL,
+    created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+CREATE TABLE tasks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id          TEXT NOT NULL,
+    task_key        TEXT NOT NULL,
+    description     TEXT NOT NULL DEFAULT '',
+    command         TEXT NOT NULL,
+    status          TEXT NOT NULL CHECK (status IN ('pending', 'running', 'done', 'failed', 'cancelled', 'skipped', 'awaiting_approval', 'denied')),
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    max_retries     INTEGER NOT NULL DEFAULT 0,
+    timeout_secs    INTEGER NOT NULL,
+    branch          TEXT,
+    worktree        TEXT,
+    exit_code       INTEGER,
+    error           TEXT,
+    changed_files   TEXT,
+    approval        TEXT NOT NULL DEFAULT 'none' CHECK (approval IN ('none', 'required', 'granted', 'denied')),
+    approval_reason TEXT NOT NULL DEFAULT '',
+    started_at      TEXT,
+    ended_at        TEXT,
+    UNIQUE (run_id, task_key)
+);
+CREATE TABLE task_dependencies (
+    task_id    INTEGER NOT NULL,
+    depends_on INTEGER NOT NULL,
+    PRIMARY KEY (task_id, depends_on),
+    CHECK (task_id <> depends_on)
+);
+CREATE INDEX tasks_run ON tasks (run_id, id);
+"#,
+    ),
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].0;

@@ -467,3 +467,93 @@ fn vision_is_off_until_configured_and_never_starts_a_worker_by_itself() {
         "invalid viewport is a usage error"
     );
 }
+
+#[test]
+fn orbit_plan_run_approval_resume_and_cleanup_through_the_cli() {
+    let env = Env::new();
+    let repo = env.home.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_in(&repo, &["init", "-q"]);
+    std::fs::write(repo.join("f.txt"), "x\n").unwrap();
+    git_in(&repo, &["add", "."]);
+    git_in(&repo, &["commit", "-q", "-m", "init"]);
+    let plan = env.home.join("plan.json");
+    std::fs::write(
+        &plan,
+        r#"{"name":"demo","tasks":[
+            {"id":"first","command":["git","--version"]},
+            {"id":"second","command":["git","log","--oneline"],"depends_on":["first"]},
+            {"id":"wipe","command":["git","clean","-fd"],"depends_on":["first"]}]}"#,
+    )
+    .unwrap();
+    let p = plan.to_str().unwrap();
+    let r = repo.to_str().unwrap();
+
+    let (code, v) = env.json(&["orbit", "plan", p, "--json"]);
+    assert_eq!(code, 0);
+    assert_eq!(v["order"][0], "first");
+    assert_eq!(v["needs_approval"][0]["id"], "wipe");
+
+    // Exit 3: finished what it could, one task waits for a human.
+    let (code, v) = env.json(&["orbit", "run", p, "--repo", r, "--json"]);
+    assert_eq!(code, 3, "{v}");
+    assert_eq!(v["status"], "needs_approval");
+    let run = v["run"].as_str().unwrap().to_string();
+    let st = |k: &str| {
+        v["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == k)
+            .unwrap()["status"]
+            .clone()
+    };
+    assert_eq!(
+        (st("first"), st("second"), st("wipe")),
+        ("done".into(), "done".into(), "awaiting_approval".into())
+    );
+
+    assert!(env
+        .run(&["orbit", "approve", &run, "wipe"])
+        .status
+        .success());
+    assert!(
+        !env.run(&["orbit", "approve", &run, "wipe"])
+            .status
+            .success(),
+        "one-shot"
+    );
+    let (code, v) = env.json(&["orbit", "resume", &run, "--json"]);
+    assert_eq!(code, 0, "{v}");
+    assert_eq!(v["status"], "done");
+    let (_, listed) = {
+        let o = env.run(&["orbit", "list"]);
+        (
+            o.status.code(),
+            String::from_utf8_lossy(&o.stdout).into_owned(),
+        )
+    };
+    assert!(listed.contains(&run));
+
+    // Cleanup needs explicit confirmation, then removes the task branches.
+    assert!(!env.run(&["orbit", "cleanup", &run]).status.success());
+    assert!(env
+        .run(&["orbit", "cleanup", &run, "--yes"])
+        .status
+        .success());
+    let branches = Command::new("git")
+        .arg("-C")
+        .arg(&repo)
+        .args(["branch", "--list", "kepler/orbit/*"])
+        .output()
+        .unwrap();
+    assert!(String::from_utf8_lossy(&branches.stdout).trim().is_empty());
+
+    // Invalid plans are usage errors (exit 2) and create nothing.
+    std::fs::write(
+        &plan,
+        r#"{"name":"x","tasks":[{"id":"a","command":["git"],"depends_on":["a"]}]}"#,
+    )
+    .unwrap();
+    assert_eq!(env.run(&["orbit", "plan", p]).status.code(), Some(2));
+}
