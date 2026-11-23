@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
 use kepler_events::{Envelope, EventError, EventKind, MAX_ENVELOPE_BYTES};
 use serde_json::Value;
 use std::path::PathBuf;

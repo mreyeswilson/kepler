@@ -31,6 +31,11 @@ version = "0.0.1"
 [[package]]
 name = "kepler-policy"
 version = "0.0.1"
+dependencies = [
+ "kepler-events",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "kepler-storage"
