@@ -23,12 +23,14 @@ Steps:
 
 1. Make sure `main` is green (Rust CI, security, installers).
 2. Bump `[workspace.package] version` in `Cargo.toml`, update `Cargo.lock`, merge.
-3. Optional dry run: Actions -> "Release binaries" -> Run workflow (builds and uploads workflow artifacts only; no release, no attestation).
+3. Optional dry run: Actions -> "Release binaries" -> Run workflow (builds, packages and prints checksums in the log only; nothing is uploaded, attested or released).
 4. `git tag vX.Y.Z && git push origin vX.Y.Z` (or `git push --tags`). The tag must equal the `kepler-cli` version; the
    preflight job fails otherwise (and for non-semver tags).
-5. The workflow builds 5 targets, smoke-tests (`kepler version`), packages, writes `SHA256SUMS`, attests provenance
-   (`actions/attest-build-provenance`) and creates the GitHub Release.
-6. **Published, not draft** (decision): the installers download `releases/latest`, which only resolves to published,
+5. The workflow builds 5 targets, smoke-tests (`kepler version`), packages, attests provenance
+   (`actions/attest-build-provenance`) and uploads each package straight to a DRAFT GitHub Release created by preflight
+   (`gh release upload`; no workflow artifacts, so the Actions artifact storage quota is not used). The final job builds
+   `SHA256SUMS` from the per-package checksums, uploads it and un-drafts the release.
+6. **Published only when complete** (decision): the release stays a draft until every asset and `SHA256SUMS` are uploaded. the installers download `releases/latest`, which only resolves to published,
    non-prerelease releases. Tags with a suffix (`v0.2.0-rc.1`) become prereleases and are not "latest". The publishing job
    runs in the GitHub environment `release`: if you want a manual approval gate, add required reviewers to that
    environment (Settings -> Environments); without rules it publishes immediately. Create the environment and (optionally)
