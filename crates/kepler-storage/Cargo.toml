@@ -11,3 +11,9 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+kepler-events.workspace = true
+kepler-policy.workspace = true
+rusqlite.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

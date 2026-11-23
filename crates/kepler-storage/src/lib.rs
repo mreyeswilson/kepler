@@ -1,1 +1,58 @@
-//! placeholder
+//! Local SQLite persistence with privacy defaults.
+//!
+//! * One dedicated writer thread (the single write coordinator) behind a bounded queue.
+//! * Read-only connections for queries.
+//! * Only event *metadata* is persisted: never prompts, command lines or tool output.
+//! * Free text that is stored on purpose (memories) is redacted first, and sensitive
+//!   paths (`.env`, keys, tokens...) are refused.
+
+pub mod dirs;
+mod error;
+mod migrations;
+mod reader;
+mod records;
+pub mod redact;
+mod writer;
+
+pub use error::StorageError;
+pub use kepler_policy::sensitive::{is_sensitive_path, resolve_within, PathError};
+pub use migrations::{migrate, LATEST_VERSION};
+pub use reader::{inspect, DbStatus, MemoryHit, Reader, StoredEvent};
+pub use records::{EventRecord, MemoryRecord, MAX_MEMORY_BYTES};
+pub use writer::{Writer, WriterConfig};
+
+use rusqlite::Connection;
+use std::path::Path;
+use std::time::Duration;
+
+pub(crate) const BUSY_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Open the read/write connection with WAL and safe defaults, then migrate.
+pub(crate) fn open_rw(path: &Path) -> Result<Connection, StorageError> {
+    let mut conn = Connection::open(path)?;
+    conn.busy_timeout(BUSY_TIMEOUT)?;
+    conn.pragma_update(None, "journal_mode", "WAL")?;
+    conn.pragma_update(None, "synchronous", "NORMAL")?;
+    conn.pragma_update(None, "foreign_keys", "ON")?;
+    conn.pragma_update(None, "trusted_schema", "OFF")?;
+    migrate(&mut conn)?;
+    restrict_file_permissions(path);
+    Ok(conn)
+}
+
+/// Best effort 0600 on Unix. On Windows the per-user data directory ACL applies.
+pub(crate) fn restrict_file_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for suffix in ["", "-wal", "-shm"] {
+            let mut p = path.as_os_str().to_owned();
+            p.push(suffix);
+            let _ = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
