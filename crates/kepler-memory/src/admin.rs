@@ -4,8 +4,8 @@
 
 use kepler_policy::redact::redact;
 use kepler_storage::{
-    purge_memories, set_setting, MemoryFilter, MemoryRow, MemoryStats, NewMemory, PurgeFilter,
-    Reader, Scope, StorageError, StoreOutcome, Writer, WriterConfig,
+    purge_memories, set_setting, MemoryFilter, MemoryQuery, MemoryRow, MemoryStats, NewMemory,
+    PurgeFilter, Reader, Scope, StorageError, StoreOutcome, Writer, WriterConfig,
 };
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -49,6 +49,34 @@ impl MemoryAdmin {
             Some(r) => r.memory_stats(project),
             None => Ok(MemoryStats::default()),
         }
+    }
+
+    /// Read-only retrieval with the same scoping, ranking and budget as the daemon.
+    pub fn search(
+        &self,
+        project: &str,
+        session: Option<&str>,
+        branch: Option<&str>,
+        text: &str,
+        budget_tokens: u32,
+    ) -> Result<(Option<String>, crate::rank::Selection), StorageError> {
+        let Some(r) = self.reader()? else {
+            return Ok((None, crate::rank::Selection::default()));
+        };
+        let cands = r.memory_candidates(&MemoryQuery {
+            project_id: project.to_string(),
+            session_id: session.map(str::to_string),
+            branch: branch.map(str::to_string),
+            text: text.to_string(),
+            limit: 30,
+        })?;
+        let sel = crate::rank::select(
+            crate::rank::rank(cands),
+            budget_tokens.min(4000),
+            8,
+            kepler_policy::ModelFamily::Generic,
+        );
+        Ok((crate::rank::render_block(&sel), sel))
     }
 
     /// `true` unless disabled for the project or globally (project overrides global).

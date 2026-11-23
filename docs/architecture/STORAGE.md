@@ -31,3 +31,10 @@ Use platform configuration/data directories and restrictive local file permissio
 
 ## Implementation status (Delivery 0)
 Implemented in `crates/kepler-storage` (migration v1): `sessions`, `events` (metadata only: no prompt, command or tool output columns, idempotent on `(session_id, event_id)`, bounded retention), `memories` + `memories_fts` (FTS5, external content, trigger-synced, scoped by `project_id`, content redacted, sensitive source paths refused). One writer thread with a bounded queue that drops on overflow; read-only connections for queries. Data directory: `KEPLER_HOME` or `%LOCALAPPDATA%\kepler` / `~/Library/Application Support/kepler` / `$XDG_DATA_HOME/kepler`. Not implemented: the remaining logical tables, purge/export commands, retention settings, encryption (the database is **not** encrypted). Dependency rationale: [ADR-0008](../decisions/0008-storage-dependencies.md).
+
+## Implementation status (Delivery 1)
+Migration v2 adds memory scopes, trust, provenance (`memory_sources`), supersession, usage counters, `module_settings`
+(enable/disable) and `context_metrics` (token figures labeled estimated/measured). Purge/export/inspect/disable are available as
+`kepler memory ...`; retention is age (180 days default, user-sourced exempt) plus a 2000-live-memories-per-project cap.
+Still not implemented: the remaining logical tables (decisions, tasks, audit_findings...), encryption. Details in
+[ADR-0010](../decisions/0010-memory-storage-and-ranking.md).

@@ -2,6 +2,7 @@
 
 #[cfg(windows)]
 mod detach;
+mod memory_cmd;
 
 use clap::{Parser, Subcommand};
 use kepler_core::emit::emit_in_process;
@@ -58,6 +59,11 @@ enum Command {
         #[arg(long)]
         in_process: bool,
     },
+    /// Inspect, search, export, purge or disable local memory.
+    Memory {
+        #[command(subcommand)]
+        cmd: memory_cmd::MemoryCmd,
+    },
     /// Print version information.
     Version {
         #[arg(long)]
@@ -87,6 +93,7 @@ fn main() -> ExitCode {
             };
             emit(&raw, no_autostart, in_process)
         }
+        Command::Memory { cmd } => memory_cmd::run(cmd),
         Command::Doctor { json } => block_on(doctor_cmd(json)),
         Command::Daemon {
             idle_timeout_secs,
@@ -234,6 +241,7 @@ async fn doctor_cmd(json: bool) -> ExitCode {
 async fn daemon_cmd(idle_timeout_secs: u64, no_storage: bool) -> ExitCode {
     let endpoint = Endpoint::from_env();
     let mut cfg = DaemonConfig::new(endpoint.clone());
+    cfg.pipeline = kepler_core::PipelineConfig::from_env();
     cfg.idle_shutdown = (idle_timeout_secs > 0).then(|| Duration::from_secs(idle_timeout_secs));
     if !no_storage {
         match kepler_storage::dirs::db_path() {

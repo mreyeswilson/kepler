@@ -1,8 +1,8 @@
 //! Daemon lifecycle: lazy start (by the first client), idle shutdown, no polling.
 
 use crate::core::Core;
+use crate::pipeline::{build_engine, PipelineConfig};
 use kepler_ipc::{serve, Endpoint, Listener, ServeExit, ServerConfig};
-use kepler_policy::PolicyEngine;
 use kepler_storage::{Writer, WriterConfig};
 use std::future::Future;
 use std::path::PathBuf;
@@ -17,6 +17,7 @@ pub struct DaemonConfig {
     /// `None` = never shut down on idle.
     pub idle_shutdown: Option<Duration>,
     pub server: ServerConfig,
+    pub pipeline: PipelineConfig,
 }
 
 impl DaemonConfig {
@@ -26,6 +27,7 @@ impl DaemonConfig {
             db_path: None,
             idle_shutdown: Some(Duration::from_secs(300)),
             server: ServerConfig::default(),
+            pipeline: PipelineConfig::default(),
         }
     }
 }
@@ -78,7 +80,12 @@ impl Daemon {
                 }
             },
         };
-        let core = Arc::new(Core::new(PolicyEngine::default(), storage));
+        let memory_storage = match (&storage, &cfg.db_path) {
+            (Some(w), Some(p)) => Some((w.clone(), p.clone())),
+            _ => None,
+        };
+        let engine = build_engine(&cfg.pipeline, memory_storage);
+        let core = Arc::new(Core::new(engine, storage));
         Ok(Self {
             listener,
             core,

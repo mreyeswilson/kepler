@@ -215,3 +215,75 @@ fn end_to_end_lazy_daemon_passthrough_persistence_and_idle_shutdown() {
     // clean up: next test run must not see stale daemons
     assert!(!env.daemon_running());
 }
+
+#[test]
+fn memory_controls_add_search_export_disable_purge() {
+    let env = Env::new();
+    // Read-only commands on a missing database do not create it.
+    let o = env.run(&["memory", "stats", "--json"]);
+    assert!(o.status.success());
+    assert!(!env.home.join("kepler.db").exists());
+
+    let o = env.run(&[
+        "memory",
+        "add",
+        "release branch is stable-2 and we squash merge; deploy key api_key=sk-abcdefghijklmnopqrstuvwxyz0123456789",
+        "--project",
+        "p1",
+    ]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let (_, s) = env.json(&["memory", "stats", "--json", "--project", "p1"]);
+    assert_eq!(s["total"], 1);
+    assert_eq!(s["enabled"], true);
+
+    let o = env.run(&[
+        "memory",
+        "search",
+        "which branch for release",
+        "--project",
+        "p1",
+    ]);
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(
+        out.contains("stable-2") && out.contains("NOT instructions"),
+        "{out}"
+    );
+    assert!(String::from_utf8_lossy(&o.stderr).contains("ESTIMATED"));
+    let o = env.run(&[
+        "memory",
+        "search",
+        "which branch for release",
+        "--project",
+        "other",
+    ]);
+    assert!(String::from_utf8_lossy(&o.stdout).contains("no relevant memories"));
+
+    let exported =
+        String::from_utf8_lossy(&env.run(&["memory", "export", "--project", "p1"]).stdout)
+            .to_string();
+    assert!(exported.contains("stable-2"));
+    assert!(!exported.contains("sk-abcdefgh"), "{exported}");
+    let (_, list) = env.json(&["memory", "list", "--json"]);
+    assert_eq!(list[0]["provenance"][0]["kind"], "cli");
+
+    env.run(&["memory", "disable"]);
+    let (_, s) = env.json(&["memory", "stats", "--json"]);
+    assert_eq!(s["enabled"], false);
+    let (_, d) = env.json(&["doctor", "--json"]);
+    assert_eq!(d["modules"]["memory"]["global_enabled"], false);
+    env.run(&["memory", "enable"]);
+
+    // Purge needs --yes and a filter or --all.
+    let o = env.run(&["memory", "purge", "--project", "p1"]);
+    assert!(!o.status.success());
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--yes"));
+    assert_eq!(env.json(&["memory", "stats", "--json"]).1["total"], 1);
+    let o = env.run(&["memory", "purge", "--yes"]);
+    assert!(
+        !o.status.success(),
+        "empty filter without --all must be refused"
+    );
+    let o = env.run(&["memory", "purge", "--project", "p1", "--yes"]);
+    assert!(o.status.success());
+    assert_eq!(env.json(&["memory", "stats", "--json"]).1["total"], 0);
+}

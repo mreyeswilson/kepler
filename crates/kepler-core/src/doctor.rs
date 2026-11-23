@@ -16,6 +16,8 @@ pub struct DoctorReport {
     pub daemon: DaemonProbe,
     pub database: DbStatus,
     pub data_dir_error: Option<String>,
+    /// Memory counters when the database exists and has the v2 schema.
+    pub memory: Option<(kepler_storage::MemoryStats, bool)>,
 }
 
 pub enum DaemonProbe {
@@ -36,8 +38,19 @@ pub async fn run(endpoint: &Endpoint, db_path: Result<&Path, String>) -> DoctorR
         },
         Err(e) => DaemonProbe::NotRunning(e.to_string()),
     };
+    let mut memory = None;
     let (database, data_dir_error) = match db_path {
-        Ok(p) => (inspect(p), None),
+        Ok(p) => {
+            let st = inspect(p);
+            if st.exists && st.error.is_none() {
+                let admin = kepler_memory::MemoryAdmin::new(p);
+                memory = match (admin.stats(None), admin.is_enabled(None)) {
+                    (Ok(s), Ok(e)) => Some((s, e)),
+                    _ => None,
+                };
+            }
+            (st, None)
+        }
         Err(e) => (
             DbStatus {
                 path: String::new(),
@@ -59,6 +72,7 @@ pub async fn run(endpoint: &Endpoint, db_path: Result<&Path, String>) -> DoctorR
         daemon,
         database,
         data_dir_error,
+        memory,
     }
 }
 
@@ -110,9 +124,20 @@ impl DoctorReport {
                 "cli_only_fallback": { "granted": cli_granted, "unsupported": cli_unsupported },
                 "note": "MCP/CLI never provide transparent interception; only native hooks do.",
             },
+            "modules": {
+                "pipeline_order": ["original (never modified)", "forge", "memory", "guardian", "harness"],
+                "forge": { "status": "implemented", "disable": "KEPLER_FORGE=off", "calls_model": false },
+                "memory": {
+                    "status": "implemented",
+                    "disable": "KEPLER_MEMORY=off or `kepler memory disable`",
+                    "global_enabled": self.memory.as_ref().map(|(_, e)| *e),
+                    "total": self.memory.as_ref().map(|(s, _)| s.total),
+                    "live": self.memory.as_ref().map(|(s, _)| s.live),
+                },
+            },
             "adapters": [
-                { "harness": "pi", "status": "scaffold_not_functional",
-                  "detail": "adapters/pi is private and does not send events yet" },
+                { "harness": "pi", "status": "observe_only_unverified",
+                  "detail": "adapters/pi is private; not verified against a live Pi session" },
                 { "harness": "claude-code|gemini-cli|opencode|codex", "status": "not_implemented" }
             ],
         })
@@ -186,11 +211,30 @@ impl DoctorReport {
             };
             line(&mut s, &format!("  {}", c.as_str()), need.into());
         }
+        s.push_str("\nModules (order: original -> forge -> memory -> guardian -> harness)\n");
+        line(
+            &mut s,
+            "  forge",
+            "implemented (KEPLER_FORGE=off disables)".into(),
+        );
+        match &self.memory {
+            Some((m, enabled)) => line(
+                &mut s,
+                "  memory",
+                format!(
+                    "{} | {} live of {} stored",
+                    if *enabled { "enabled" } else { "DISABLED" },
+                    m.live,
+                    m.total
+                ),
+            ),
+            None => line(&mut s, "  memory", "implemented (no database yet)".into()),
+        }
         s.push_str("\nAdapters\n");
         line(
             &mut s,
             "  pi",
-            "scaffold, not functional (no events sent yet)".into(),
+            "observe-only adapter (private, not verified with a live Pi)".into(),
         );
         line(&mut s, "  others", "not implemented".into());
         s

@@ -111,7 +111,12 @@ pub fn emit_in_process(event: serde_json::Value) -> EmitOutcome {
             code: e.code().to_string(),
             message: e.to_string(),
         },
-        Ok(env) => EmitOutcome::Verdict(kepler_policy::PolicyEngine::default().evaluate(&env)),
+        Ok(env) => {
+            // Same pipeline as the daemon minus anything that needs storage (Memory).
+            let engine =
+                crate::pipeline::build_engine(&crate::pipeline::PipelineConfig::from_env(), None);
+            EmitOutcome::Verdict(engine.evaluate(&env))
+        }
     }
 }
 

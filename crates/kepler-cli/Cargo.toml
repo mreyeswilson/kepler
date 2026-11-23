@@ -19,6 +19,7 @@ kepler-core.workspace = true
 kepler-events.workspace = true
 kepler-ipc.workspace = true
 kepler-storage.workspace = true
+kepler-memory.workspace = true
 clap.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt", "time", "signal", "net", "io-util", "sync"] }

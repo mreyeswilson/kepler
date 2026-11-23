@@ -272,7 +272,7 @@ async fn event_flood_from_many_connections_is_fully_answered() {
                     .send_event_value(input(
                         &format!("c{c}-{i}"),
                         &format!("flood-{c}"),
-                        "refactor the parser please",
+                        "Fix the failing test in parser.rs",
                     ))
                     .await
                     .unwrap();
@@ -402,6 +402,15 @@ async fn storage_failure_does_not_block_the_daemon() {
     let mut c = client(&ep).await;
     let v = c
         .send_event_value(input("e1", "s1", "refactor the parser please"))
+        .await
+        .unwrap();
+    // Without storage Memory is not registered, but Forge still works.
+    match v.decision {
+        Decision::Enrich { derived } => assert!(derived.iter().all(|d| d.source == "forge")),
+        d => panic!("{d:?}"),
+    }
+    let v = c
+        .send_event_value(input("e2", "s1", "Fix the failing test in parser.rs"))
         .await
         .unwrap();
     assert!(v.decision.is_passthrough());

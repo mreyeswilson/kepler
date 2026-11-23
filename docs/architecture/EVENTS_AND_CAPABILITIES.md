@@ -54,3 +54,10 @@ Each capability has an implementation kind (native hook, MCP tool, CLI, unsuppor
 
 ## Implementation status (Delivery 0)
 The v1 envelope, the 11 payload kinds, size limits and capability negotiation are implemented in `crates/kepler-events` and tested against the shared fixtures in `fixtures/events/` (see `manifest.json`; TypeScript adapters should consume the same files). The wire protocol that carries events is specified in [ADR-0007](../decisions/0007-ipc-wire-protocol.md). Ordering steps 2-7 above (Forge, Memory, Guardian, Sentinel, Vision) are not implemented; the core currently classifies deterministically and returns passthrough or a tool-preflight verdict.
+
+## Implementation status (Delivery 1)
+Ordering steps 2-3 are implemented in the daemon: `PolicyEngine` runs registered modules in order (Forge, then Memory) and
+returns their output as separate `derived[]` items (`provenance` = `inferred` | `recalled`) next to an untouched original;
+Guardian (step 4) is Delivery 2. `context.requested` is answered by Memory with scoped, budgeted recall; `memory.candidate`
+events are queued and consolidated on an `ok` `agent.settled`. Focus (steps 2, 5, 7) and Sentinel/Vision/Genesis are not
+implemented. See [ADR-0009](../decisions/0009-module-pipeline-and-forge.md) and [ADR-0010](../decisions/0010-memory-storage-and-ranking.md).

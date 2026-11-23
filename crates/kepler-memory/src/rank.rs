@@ -67,7 +67,7 @@ pub struct SelectionStats {
     pub over_budget: usize,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Selection {
     pub items: Vec<Ranked>,
     /// Estimated tokens of the rendered items (always an estimate).
