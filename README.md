@@ -8,14 +8,14 @@
 
 | Módulo | Qué implementa (con tests) | Límites conocidos |
 |---|---|---|
-| **Focus** | Supervisión determinista como *avisos* no bloqueantes: scope lock, bucles (llamadas/fallos repetidos, ediciones oscilantes), presupuesto adaptativo, guardia de cambio mínimo (manifiestos de dependencias, cambios grandes), puerta de evidencia/finalización. [ADR-0014](docs/decisions/0014-focus-implementation.md) | Umbrales sin calibrar; nunca cancela ni bloquea; el adaptador Pi aún no muestra los avisos; sin benchmark con/sin Kepler |
-| **Forge** | Clasificador passthrough/enrich/compile/decompose y spec derivada etiquetada (nunca promueve inferencias a instrucciones). [ADR-0009](docs/decisions/0009-module-pipeline-and-forge.md) | Heurísticas en inglés/español sin evaluar sobre prompts reales; sin LLM |
-| **Memory** | FTS5 con alcance, ranking, dedupe/supersession, presupuesto de tokens estimados, controles `kepler memory ...`. [ADR-0010](docs/decisions/0010-memory-storage-and-ranking.md) | Pesos sin afinar; sin embeddings |
-| **Guardian** | Preflight de herramientas *fail-closed*, reglas del usuario, secretos en resultados (`redact`), presupuesto de contexto. [ADR-0011](docs/decisions/0011-guardian-and-wire-additions.md) | Coincidencia de cadenas, no es un sandbox; sin tokenizador real; sin compresión de salida |
-| **Sentinel** | Auditoría determinista: reglas de rutas en el daemon (`files.changed`) y reglas de líneas añadidas sobre `git diff` (`kepler sentinel audit`); hallazgos `confirmed`/`suspected` en `audit_findings`. [ADR-0015](docs/decisions/0015-sentinel-and-findings.md) | Sin AST ni integración con linters/tests del proyecto; reglas simples |
+| **Focus** | Supervisión determinista como *avisos* no bloqueantes: scope lock, bucles (llamadas/fallos repetidos, ediciones oscilantes), presupuesto adaptativo, guardia de cambio mínimo (manifiestos de dependencias, cambios grandes), puerta de evidencia/finalización. [ADR-0014](docs/decisions/0014-focus-implementation.md) | Calibrado solo con 12 trazas sintéticas ([ADR-0023](docs/decisions/0023-focus-calibration-and-advisory-display.md): 9/9 avisos esperados, 0 falsos positivos, ~84 us/evento); nunca cancela ni bloquea; el adaptador Pi muestra los avisos con `ctx.ui.notify` (probado con UI simulada, no en un TUI real); sin A/B con/sin Kepler con un modelo real |
+| **Forge** | Clasificador passthrough/enrich/compile/decompose y spec derivada etiquetada (nunca promueve inferencias a instrucciones). [ADR-0009](docs/decisions/0009-module-pipeline-and-forge.md) | Corpus propio de 79 prompts es/en (`fixtures/forge/prompts.tsv`) con 100 % de acierto tras ajustar reglas: riesgo de sobreajuste, sin prompts de usuarios reales; sin LLM |
+| **Memory** | FTS5 con alcance, ranking, dedupe/supersession, presupuesto de tokens estimados, controles `kepler memory ...`. [ADR-0010](docs/decisions/0010-memory-storage-and-ranking.md) | Captura automática de lo *observado* (comandos de build/test que terminaron bien; archivos cambiados por rama) y selección real del scope de rama ([ADR-0021](docs/decisions/0021-memory-auto-capture-and-branch.md)); pesos de ranking sin afinar; sin embeddings |
+| **Guardian** | Preflight de herramientas *fail-closed*, reglas del usuario, secretos en resultados (`redact`), presupuesto de contexto. [ADR-0011](docs/decisions/0011-guardian-and-wire-additions.md) | Análisis real de comandos shell/PowerShell/cmd (comillas, variables, `bash -c`, `-EncodedCommand`, pipes a intérpretes, symlinks/junctions) con corpus de ~190 casos ([ADR-0020](docs/decisions/0020-guardian-shell-analysis.md)); sigue sin ser un sandbox: no ve scripts ejecutados desde archivos, alias, ni lo que el harness no reporta; ~0,6 ms/comando |
+| **Sentinel** | Auditoría determinista: reglas de rutas en el daemon (`files.changed`) y reglas de líneas añadidas sobre `git diff` (`kepler sentinel audit`); hallazgos `confirmed`/`suspected` en `audit_findings`. [ADR-0015](docs/decisions/0015-sentinel-and-findings.md) | `kepler sentinel check` ejecuta lint/test del proyecto (acotado, tras el Guardian) y registra hallazgos ([ADR-0022](docs/decisions/0022-sentinel-project-checks.md)); parsers heurísticos de texto, sin AST; no corre solo desde el daemon |
 | **Vision** | Gestor Rust (lazy, timeouts con kill, allowlist localhost, entorno mínimo) + worker TypeScript/Playwright privado en `workers/vision`. [ADR-0016](docs/decisions/0016-vision-worker.md) | **El worker nunca se ejecutó contra un Chromium real** (no se descargó ningún navegador); apagado por defecto hasta configurar `KEPLER_VISION_WORKER` |
 | **Orbit** | Planificador DAG de tareas de comandos, concurrencia acotada, un git worktree por tarea, aprobaciones para comandos destructivos, `kepler orbit ...`. [ADR-0017](docs/decisions/0017-orbit-dag-scheduler.md) | No inicia agentes por sí mismo; sin límites de CPU/RAM del SO; el kill de procesos en Unix no se ejecutó fuera de Windows |
-| **Genesis** | **No implementado.** Solo diseño y requisitos previos. [ADR-0018](docs/decisions/0018-genesis-deferred-design.md) | No existe UI de escritorio |
+| **Genesis (UI local)** | `kepler ui`: panel en `127.0.0.1` con token de sesión, comprobación de Host/Origin, API JSON de solo lectura (resumen, eventos, memoria, hallazgos, Orbit) y aprobar/denegar Orbit solo con `--allow-actions` y confirmación escrita. [ADR-0024](docs/decisions/0024-genesis-local-ui.md) | Es un panel, no el flujo de diseño de UI de [ADR-0018](docs/decisions/0018-genesis-deferred-design.md) (sin generación de diseños/código); solo verificado en Windows |
 
 Infraestructura: eventos v1 con fixtures, 8 capacidades negociadas ([ADR-0002](docs/decisions/0002-adapter-capabilities.md)), IPC local de usuario único ([ADR-0007](docs/decisions/0007-ipc-wire-protocol.md)), SQLite WAL + FTS5 con redacción de secretos, daemon lazy con apagado por inactividad, servidor MCP stdio ([ADR-0012](docs/decisions/0012-mcp-stdio-minimal-server.md)), adaptador Pi con hooks automáticos (`adapters/pi`, `private: true`, [ADR-0013](docs/decisions/0013-pi-automatic-hooks.md)). Mediciones reales en [PERFORMANCE.md](docs/development/PERFORMANCE.md).
 
@@ -102,7 +102,9 @@ kepler memory list|search|export|add|purge|disable|enable|stats
 kepler mcp serve                               # MCP por stdio: kepler_doctor, kepler_inspect, kepler_memory_search
 
 kepler sentinel audit --repo . [--staged | --base main] [--store] [--fail-on high]
+kepler sentinel check --repo . --detect [--cmd "lint=cargo clippy"] [--timeout-secs 300] [--store]
 kepler sentinel list [--min-severity medium] ; kepler sentinel dismiss <id>
+kepler ui [--port N] [--allow-actions] [--open]  # panel local con token en la URL
 
 KEPLER_VISION_WORKER=workers/vision/dist/src/main.js kepler vision check http://localhost:3000
 kepler vision status [--probe] ; kepler vision clean
@@ -160,9 +162,9 @@ Crates: `kepler-events` (envelope v1), `-policy` (motor, Guardian, redacción), 
 
 ## Qué falta (sin verificar o sin implementar)
 
-* Verificación con Pi real, cliente MCP de terceros, Chromium real, Linux y macOS (el código Unix del transporte y del kill de procesos de Orbit no se ejecutó fuera de Windows; lo cubrirá la matriz de CI).
-* Benchmark con/sin Kepler (KPL-032) y calibración de Focus; la compresión de salida de herramientas; detección/instalación de harnesses; primer release real y paquete npm (el npm sigue bloqueado hasta verificar con un Pi real).
-* Genesis y cualquier UI de escritorio.
+* Verificado con un Pi real 1.6.0 (e2e: `npm run test:e2e` en `adapters/pi`, modelo scripted sin credenciales; ver [NPM_AND_PI](docs/distribution/NPM_AND_PI.md)). **No** verificado: aprobaciones interactivas en el TUI de Pi, avisos de Focus en un TUI real, un modelo remoto real, cliente MCP de terceros, Chromium real, Linux y macOS.
+* Benchmark A/B con/sin Kepler con un modelo real (KPL-032); compresión de salida de herramientas; detección/instalación de harnesses; primer release real y paquete npm (el adaptador Pi sigue `private: true` hasta aprobar propiedad del scope npm y release).
+* Flujo de diseño/generación de UI de Genesis (ADR-0018); `kepler ui` es solo un panel.
 
 ## Documentación
 
