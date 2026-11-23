@@ -39,7 +39,9 @@ fn fake_task_entry() {
                 .append(true)
                 .open(f)
                 .unwrap();
-            writeln!(h, "{key} {what} {}", now_ms()).unwrap();
+            // One write call per line: `writeln!` issues several, which concurrent tasks interleave.
+            let line = format!("{key} {what} {}\n", now_ms());
+            h.write_all(line.as_bytes()).unwrap();
         }
     };
     append("start");
