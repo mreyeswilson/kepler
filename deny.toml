@@ -1,0 +1,28 @@
+# Minimal cargo-deny policy (run by .github/workflows/security.yml).
+# NOTE: written for cargo-deny 0.18+; it could not be executed in the authoring environment.
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+# Workspace crates are `publish = false` with license UNLICENSED (pending decision): ignore them.
+private = { ignore = true }
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "Unlicense",
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

@@ -1,8 +1,9 @@
 # Kepler Pi adapter (KPL-008) — observe-only, unverified against real Pi
 
 > **Status: experimental, private, not published.** The adapter forwards each user `input` to a locally running Kepler core as an
-> `input.received` v1 event and does nothing else. It has **only been tested against a mock core** (unit/integration tests in this
-> directory). It has **not** been tested end to end inside a running Pi session, and the Kepler core is not launched or installed by it.
+> `input.received` v1 event and does nothing else. It is tested against a mock core (tests in this directory) and was checked once,
+> manually on Windows, against the real Rust daemon (`kepler daemon`: handshake, passthrough decision, `invalid_field` error).
+> It has **not** been tested end to end inside a running Pi session, and the Kepler core is not launched or installed by it.
 > Do not describe it as working with Pi until an e2e test with real Pi exists.
 
 ## What it does
