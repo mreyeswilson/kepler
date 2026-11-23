@@ -152,19 +152,24 @@ The SHA-256 of the downloaded zip is always verified against the release SHA256S
         if ($url -like 'file://*') {
             Copy-Item -LiteralPath ([Uri]$url).LocalPath -Destination $dest
         } elseif ($url -like 'https://api.github.com/*') {
-            $h = @{ Authorization = "Bearer $token"; Accept = $accept; 'X-GitHub-Api-Version' = '2022-11-28'; 'User-Agent' = 'kepler-install' }
             # No automatic redirects: the Authorization header must never follow a redirect to another host.
+            $req = [Net.HttpWebRequest]::Create($url)
+            $req.AllowAutoRedirect = $false
+            $req.UserAgent = 'kepler-install'
+            $req.Accept = $accept
+            $req.Headers['Authorization'] = "Bearer $token"
+            $req.Headers['X-GitHub-Api-Version'] = '2022-11-28'
             $loc = $null
+            $resp = $req.GetResponse()
             try {
-                Invoke-WebRequest -Uri $url -Headers $h -OutFile $dest -UseBasicParsing -MaximumRedirection 0 | Out-Null
-            } catch {
-                $resp = $_.Exception.Response
-                $code = 0; if ($resp) { $code = [int]$resp.StatusCode }
+                $code = [int]$resp.StatusCode
                 if ($code -ge 300 -and $code -lt 400) {
-                    $loc = [string]($resp.Headers['Location'])
-                    if (-not $loc -and $resp.Headers.Location) { $loc = [string]$resp.Headers.Location }
-                } else { throw }
-            }
+                    $loc = [string]$resp.Headers['Location']
+                } else {
+                    $fs = [IO.File]::Create($dest)
+                    try { $resp.GetResponseStream().CopyTo($fs) } finally { $fs.Dispose() }
+                }
+            } finally { $resp.Close() }
             if ($loc) {
                 if ($loc -notlike 'https://*') { throw 'refusing a non-HTTPS redirect' }
                 Invoke-WebRequest -Uri $loc -OutFile $dest -UseBasicParsing -MaximumRedirection 5 -Headers @{ Accept = 'application/octet-stream'; 'User-Agent' = 'kepler-install' }
