@@ -40,6 +40,36 @@ pub enum VisionCmd {
     },
     /// Delete saved screenshots.
     Clean,
+    /// Install the worker into the data directory (needs Node 22.18+ and npm; downloads only the
+    /// pinned `playwright` package, never a browser). Edge or Chrome must already be installed, or
+    /// run `npx playwright install chromium` yourself.
+    Setup,
+}
+
+/// Where `kepler vision setup` installs the worker.
+fn worker_dir() -> Result<std::path::PathBuf, String> {
+    Ok(kepler_storage::dirs::data_dir()
+        .map_err(|e| e.to_string())?
+        .join("vision-worker"))
+}
+
+/// `KEPLER_VISION_WORKER` wins; otherwise the worker installed by `kepler vision setup`.
+fn worker_command() -> Result<WorkerCommand, VisionOrString> {
+    match WorkerCommand::from_env() {
+        Err(VisionError::NotConfigured) => {
+            let dir = worker_dir()?;
+            if kepler_vision::setup::is_installed(&dir) {
+                Ok(WorkerCommand::from_path(kepler_vision::setup::entry_point(
+                    &dir,
+                )))
+            } else {
+                Err(VisionOrString(
+                    "Vision worker not installed: run `kepler vision setup` (or set KEPLER_VISION_WORKER to a worker entry point)".into(),
+                ))
+            }
+        }
+        other => Ok(other?),
+    }
 }
 
 fn parse_viewport(s: &str) -> Result<Viewport, String> {
@@ -71,11 +101,14 @@ fn exec(cmd: VisionCmd) -> Result<ExitCode, VisionOrString> {
     match cmd {
         VisionCmd::Status { probe } => {
             let hosts = allowed_hosts();
-            let cmd = WorkerCommand::from_env();
+            let cmd = worker_command();
             println!("allowlist: localhost, 127.0.0.1, [::1], *.localhost (+ {hosts:?})");
             match cmd {
                 Err(e) => {
                     println!("worker: not configured ({e})");
+                    if probe {
+                        return Err(e);
+                    }
                     Ok(ExitCode::SUCCESS)
                 }
                 Ok(c) => {
@@ -85,12 +118,34 @@ fn exec(cmd: VisionCmd) -> Result<ExitCode, VisionOrString> {
                         return Ok(ExitCode::SUCCESS);
                     }
                     let mut m = WorkerManager::new(c, hosts);
-                    m.probe()?;
-                    println!("worker answered hello; Playwright package is importable");
+                    let info = m.probe_browser();
                     m.shutdown();
-                    Ok(ExitCode::SUCCESS)
+                    let info = info?;
+                    println!("worker answered hello; Playwright package is importable");
+                    match (info.browser, info.browser_error) {
+                        (Some(b), _) => {
+                            println!("browser: {b} (launched and closed)");
+                            Ok(ExitCode::SUCCESS)
+                        }
+                        (None, e) => {
+                            println!(
+                                "browser: NONE. {}",
+                                e.unwrap_or_else(|| "no browser could be launched".into())
+                            );
+                            println!("fix: install Microsoft Edge or Google Chrome, set KEPLER_VISION_BROWSER (msedge, chrome or an executable path), or run `npx playwright install chromium`");
+                            Ok(ExitCode::from(2))
+                        }
+                    }
                 }
             }
+        }
+        VisionCmd::Setup => {
+            let dir = worker_dir()?;
+            std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+            println!("installing the Vision worker into {}", dir.display());
+            kepler_vision::setup::install(&dir)?;
+            println!("done. Check it with: kepler vision status --probe");
+            Ok(ExitCode::SUCCESS)
         }
         VisionCmd::Clean => {
             let dir = vision_dir()?;
@@ -124,7 +179,7 @@ fn exec(cmd: VisionCmd) -> Result<ExitCode, VisionOrString> {
             } else {
                 None
             };
-            let mut mgr = WorkerManager::new(WorkerCommand::from_env()?, allowed_hosts());
+            let mut mgr = WorkerManager::new(worker_command()?, allowed_hosts());
             let result = mgr.check(
                 &url,
                 &viewports,
@@ -195,7 +250,7 @@ fn exec(cmd: VisionCmd) -> Result<ExitCode, VisionOrString> {
 
 /// Error type that lets `?` accept both worker errors and plain strings.
 #[derive(Debug)]
-pub struct VisionOrString(String);
+pub struct VisionOrString(pub String);
 
 impl std::fmt::Display for VisionOrString {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

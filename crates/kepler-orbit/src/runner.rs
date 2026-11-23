@@ -152,11 +152,13 @@ fn kill_tree(child: &mut Child) {
 }
 
 /// Copy a pipe into a capped log file. Detached: it ends when the pipe closes.
-fn capture(mut pipe: impl Read + Send + 'static, mut log: std::fs::File, label: &'static str) {
+fn capture(
+    mut pipe: impl Read + Send + 'static,
+    mut log: std::fs::File,
+) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];
         let mut written = 0usize;
-        let _ = writeln!(log, "--- {label} ---");
         while let Ok(n) = pipe.read(&mut buf) {
             if n == 0 {
                 break;
@@ -167,10 +169,47 @@ fn capture(mut pipe: impl Read + Send + 'static, mut log: std::fs::File, label: 
                 written += take;
             }
         }
-    });
+    })
+}
+
+/// Wait (briefly) for the capture threads, then redact the log in place: task output may contain
+/// secrets (an agent can print anything), and the log is the only place it is kept.
+fn finalize_log(handles: Vec<std::thread::JoinHandle<()>>, paths: &[PathBuf]) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while Instant::now() < deadline && !handles.iter().all(std::thread::JoinHandle::is_finished) {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    for path in paths {
+        if let Ok(bytes) = std::fs::read(path) {
+            let text = String::from_utf8_lossy(&bytes);
+            let clean = redact(&text);
+            if clean != text {
+                let _ = std::fs::write(path, clean.as_bytes());
+            }
+        }
+    }
 }
 
 fn run_task(sh: &Shared, t: &TaskState, dep_branches: &[String]) -> Outcome {
+    let mut handles = Vec::new();
+    let out = run_task_inner(sh, t, dep_branches, &mut handles);
+    let dir = sh.root.join(&sh.run_id);
+    finalize_log(
+        handles,
+        &[
+            dir.join(format!("{}.log", t.key)),
+            dir.join(format!("{}.err.log", t.key)),
+        ],
+    );
+    out
+}
+
+fn run_task_inner(
+    sh: &Shared,
+    t: &TaskState,
+    dep_branches: &[String],
+    handles: &mut Vec<std::thread::JoinHandle<()>>,
+) -> Outcome {
     let wt = sh.root.join(&sh.run_id).join(&t.key);
     let branch = format!("kepler/orbit/{}/{}", sh.run_id, t.key);
     // A retry starts from a clean slate.
@@ -190,6 +229,7 @@ fn run_task(sh: &Shared, t: &TaskState, dep_branches: &[String]) -> Outcome {
         return fail(e, None, true);
     }
     let log_path = sh.root.join(&sh.run_id).join(format!("{}.log", t.key));
+    let err_path = sh.root.join(&sh.run_id).join(format!("{}.err.log", t.key));
     let Some(program) = t.argv.first() else {
         return fail("empty command".into(), None, true);
     };
@@ -232,9 +272,13 @@ fn run_task(sh: &Shared, t: &TaskState, dep_branches: &[String]) -> Outcome {
             std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(&log_path),
+                .open(if label == "stderr" {
+                    &err_path
+                } else {
+                    &log_path
+                }),
         ) {
-            capture(p, f, label);
+            handles.push(capture(p, f));
         }
     }
     let deadline = Instant::now() + Duration::from_secs(u64::from(t.timeout_secs));
@@ -387,11 +431,13 @@ impl Orbit {
         }
         let repo = PathBuf::from(&run.repo_path);
         let mut removed = 0;
+        // Path and branch are deterministic, so tasks that never recorded them (cancelled or killed
+        // mid-run) are cleaned up too; deriving them avoids leaking worktrees and branches.
         for t in &tasks {
-            if let (Some(w), Some(b)) = (&t.worktree, &t.branch) {
-                if worktree::remove_worktree(&repo, Path::new(w), b) {
-                    removed += 1;
-                }
+            let wt = self.root.join(run_id).join(&t.key);
+            let branch = format!("kepler/orbit/{run_id}/{}", t.key);
+            if worktree::remove_worktree(&repo, &wt, &branch) {
+                removed += 1;
             }
         }
         let dir = self.root.join(run_id);

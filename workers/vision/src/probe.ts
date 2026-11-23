@@ -5,6 +5,8 @@ export interface ProbeResult {
   scroll_width: number;
   client_width: number;
   issues: Issue[];
+  /** href attribute values of up to 40 anchors (never form values or text). */
+  links: string[];
 }
 
 /**
@@ -59,5 +61,6 @@ export function domProbe(): ProbeResult {
     scroll_width: document.documentElement.scrollWidth,
     client_width: vw,
     issues,
+    links: Array.from(document.querySelectorAll("a[href]")).slice(0, 40).map((a) => a.getAttribute("href") ?? ""),
   };
 }

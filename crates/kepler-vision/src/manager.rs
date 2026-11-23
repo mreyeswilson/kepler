@@ -34,6 +34,15 @@ const ENV_PASSTHROUGH: &[&str] = &[
     "TMPDIR",
     "LOCALAPPDATA",
     "APPDATA",
+    // Playwright finds installed Edge/Chrome through these.
+    "ProgramFiles",
+    "PROGRAMFILES",
+    "ProgramFiles(x86)",
+    "PROGRAMFILES(X86)",
+    "ProgramW6432",
+    "ProgramData",
+    "SystemDrive",
+    "USERNAME",
     "XDG_CACHE_HOME",
     "XDG_RUNTIME_DIR",
     "DISPLAY",
@@ -68,7 +77,7 @@ impl std::fmt::Display for VisionError {
         match self {
             Self::NotConfigured => write!(
                 f,
-                "Vision worker not configured: set KEPLER_VISION_WORKER to workers/vision/dist/src/main.js (build it with `npm run build`)"
+                "Vision worker not configured: run `kepler vision setup`, or set KEPLER_VISION_WORKER to a worker entry point (workers/vision/dist/src/main.js after `npm run build`)"
             ),
             Self::UrlNotAllowed(e) => write!(f, "URL refused: {e}"),
             Self::BadRequest(m) => write!(f, "invalid request: {m}"),
@@ -107,19 +116,27 @@ impl WorkerCommand {
         let path = std::env::var_os("KEPLER_VISION_WORKER")
             .filter(|p| !p.is_empty())
             .ok_or(VisionError::NotConfigured)?;
-        let p = PathBuf::from(&path);
+        Ok(Self::from_path(PathBuf::from(path)))
+    }
+
+    /// Like [`WorkerCommand::from_env`] for an explicit path. `.ts` files rely on Node's built-in
+    /// type stripping (Node 22.18 or newer), which is how `kepler vision setup` installs the worker.
+    pub fn from_path(path: PathBuf) -> Self {
+        let p = path.clone();
         let is_js = p
             .extension()
             .and_then(|e| e.to_str())
-            .is_some_and(|e| matches!(e, "js" | "mjs" | "cjs"));
+            .is_some_and(|e| matches!(e, "js" | "mjs" | "cjs" | "ts" | "mts"));
+        Self::build(is_js, path)
+    }
+
+    fn build(is_js: bool, path: PathBuf) -> Self {
+        let path = path.into_os_string();
         if is_js {
             let node = std::env::var_os("KEPLER_VISION_NODE").unwrap_or_else(|| "node".into());
-            Ok(Self::new(
-                node,
-                vec!["--max-old-space-size=384".into(), path],
-            ))
+            Self::new(node, vec!["--max-old-space-size=384".into(), path])
         } else {
-            Ok(Self::new(path, Vec::new()))
+            Self::new(path, Vec::new())
         }
     }
 }
@@ -261,8 +278,7 @@ impl WorkerManager {
 
     fn kill(&mut self) {
         if let Some(mut r) = self.running.take() {
-            let _ = r.child.kill();
-            let _ = r.child.wait();
+            kill_tree(&mut r.child);
         }
     }
 
@@ -357,6 +373,24 @@ impl WorkerManager {
         self.ensure_started()
     }
 
+    /// Start the worker and ask it to launch a browser once (then it is shut down by the caller).
+    pub fn probe_browser(&mut self) -> Result<ProbeInfo, VisionError> {
+        self.ensure_started()?;
+        let id = self.id();
+        let hello =
+            serde_json::json!({"v": PROTOCOL_VERSION, "id": id, "op": "hello", "launch": true});
+        let resp = self.exchange(&hello, &id, Duration::from_secs(30))?;
+        if !resp.ok {
+            return Err(worker_error(resp));
+        }
+        let r = resp.result.unwrap_or_default();
+        let s = |k: &str| r.get(k).and_then(|v| v.as_str()).map(String::from);
+        Ok(ProbeInfo {
+            browser: s("browser"),
+            browser_error: s("browser_error"),
+        })
+    }
+
     /// Inspect `url` at the given viewports. Validation happens before anything is started.
     pub fn check(
         &mut self,
@@ -422,13 +456,35 @@ impl WorkerManager {
                     std::thread::sleep(Duration::from_millis(10));
                 }
                 _ => {
-                    let _ = r.child.kill();
-                    let _ = r.child.wait();
+                    kill_tree(&mut r.child);
                     return;
                 }
             }
         }
     }
+}
+
+/// Kill the worker and everything it started (the browser is a grandchild: killing only the Node
+/// process would leave Edge/Chrome running). Windows: `taskkill /T`; elsewhere the plain kill.
+fn kill_tree(child: &mut Child) {
+    #[cfg(windows)]
+    {
+        let _ = Command::new("taskkill")
+            .args(["/PID", &child.id().to_string(), "/T", "/F"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
+/// What `kepler vision status --probe` learns from a launch handshake.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeInfo {
+    /// The browser that launched (`msedge`, `chrome`, `chromium` or an executable path).
+    pub browser: Option<String>,
+    pub browser_error: Option<String>,
 }
 
 fn worker_error(resp: Response) -> VisionError {

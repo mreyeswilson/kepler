@@ -12,8 +12,9 @@ mod allowlist;
 mod findings;
 mod manager;
 mod protocol;
+pub mod setup;
 
 pub use allowlist::{check_url, parse_allowed_hosts, UrlError};
 pub use findings::to_findings;
-pub use manager::{CheckOptions, VisionError, WorkerCommand, WorkerManager};
+pub use manager::{CheckOptions, ProbeInfo, VisionError, WorkerCommand, WorkerManager};
 pub use protocol::{CheckResult, Issue, Viewport, ViewportResult, PROTOCOL_VERSION};

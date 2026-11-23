@@ -105,7 +105,16 @@ export function runWorker(opts: WorkerOptions): Promise<void> {
         return;
       }
       if (req.op === "hello") {
-        send(okResponse(req.id, { worker: "kepler-vision", protocol: PROTOCOL_VERSION, node: process.version, playwright: await opts.driver.available() }));
+        const info: Record<string, unknown> = { worker: "kepler-vision", protocol: PROTOCOL_VERSION, node: process.version, playwright: await opts.driver.available() };
+        if (req.launch === true && info["playwright"] === true) {
+          try {
+            info["browser"] = await opts.driver.ensureBrowser();
+          } catch (e) {
+            info["browser"] = null;
+            info["browser_error"] = e instanceof Error ? e.message.slice(0, 280) : "unknown";
+          }
+        }
+        send(okResponse(req.id, info));
         return;
       }
       if ((opts.rssLimitBytes ?? 0) > 0 && rss() > (opts.rssLimitBytes ?? 0)) {
