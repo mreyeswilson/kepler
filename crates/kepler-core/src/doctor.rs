@@ -127,7 +127,7 @@ impl DoctorReport {
             },
             "modules": {
                 "pipeline_order": ["original (never modified)", "forge", "memory", "guardian", "harness"],
-                "forge": { "status": "implemented", "disable": "KEPLER_FORGE=off", "calls_model": false },
+                "forge": { "status": "implemented", "disable": "KEPLER_FORGE=off", "calls_model": false, "model_assist": "adapter side, see forge_model" },
                 "memory": {
                     "status": "implemented",
                     "disable": "KEPLER_MEMORY=off or `kepler memory disable`",

@@ -13,3 +13,4 @@ workspace = true
 [dependencies]
 kepler-events.workspace = true
 kepler-policy.workspace = true
+serde_json.workspace = true

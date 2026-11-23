@@ -67,5 +67,9 @@ pub fn doctor_value() -> Result<Value, String> {
         &Endpoint::from_env(),
         db.as_deref().map_err(Clone::clone),
     ));
-    Ok(report.to_json())
+    let mut v = report.to_json();
+    if let Some(o) = v.as_object_mut() {
+        o.insert("forge_model".into(), crate::forge_model::doctor_value());
+    }
+    Ok(v)
 }

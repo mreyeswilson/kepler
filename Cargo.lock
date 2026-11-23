@@ -134,11 +134,12 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "kepler-cli"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "clap",
  "kepler-core",
  "kepler-events",
+ "kepler-forge",
  "kepler-ipc",
  "kepler-mcp",
  "kepler-memory",
@@ -154,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "kepler-core"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-events",
  "kepler-focus",
@@ -171,7 +172,7 @@ dependencies = [
 
 [[package]]
 name = "kepler-events"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -179,7 +180,7 @@ dependencies = [
 
 [[package]]
 name = "kepler-focus"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-events",
  "kepler-policy",
@@ -188,19 +189,20 @@ dependencies = [
 
 [[package]]
 name = "kepler-forge"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-events",
  "kepler-policy",
+ "serde_json",
 ]
 
 [[package]]
 name = "kepler-git"
-version = "0.0.3"
+version = "0.0.4"
 
 [[package]]
 name = "kepler-ipc"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-events",
  "kepler-policy",
@@ -211,14 +213,14 @@ dependencies = [
 
 [[package]]
 name = "kepler-mcp"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "serde_json",
 ]
 
 [[package]]
 name = "kepler-memory"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-events",
  "kepler-forge",
@@ -229,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "kepler-orbit"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-events",
  "kepler-git",
@@ -241,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "kepler-policy"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-events",
  "serde",
@@ -250,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "kepler-sentinel"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-events",
  "kepler-git",
@@ -261,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "kepler-storage"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-events",
  "kepler-policy",
@@ -271,7 +273,7 @@ dependencies = [
 
 [[package]]
 name = "kepler-ui"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-memory",
  "kepler-storage",
@@ -281,7 +283,7 @@ dependencies = [
 
 [[package]]
 name = "kepler-vision"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "kepler-policy",
  "kepler-storage",
