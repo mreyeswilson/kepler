@@ -22,7 +22,8 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "test": "node --test \"test/*.test.ts\""
+    "test": "node --test \"test/*.test.ts\"",
+    "test:e2e": "node test/e2e/run.mjs"
   },
   "pi": {
     "extensions": [

@@ -68,6 +68,30 @@ fn corpus_matches_expectations() {
     );
 }
 
+/// Cost of the preflight on the whole corpus (printed; asserted only loosely so debug builds
+/// and slow CI machines do not flake).
+#[test]
+fn preflight_cost_is_small() {
+    let cmds: Vec<&str> = CORPUS
+        .lines()
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| l.split_once('\t').map(|(_, c)| c))
+        .collect();
+    let t = std::time::Instant::now();
+    let rounds = 5;
+    for _ in 0..rounds {
+        for c in &cmds {
+            let _ = verdict(c);
+        }
+    }
+    let per = t.elapsed().as_secs_f64() * 1e6 / (rounds * cmds.len()) as f64;
+    eprintln!(
+        "guardian preflight: {per:.1} us/command over {} commands",
+        cmds.len()
+    );
+    assert!(per < 20_000.0, "{per} us/command");
+}
+
 #[test]
 fn tool_result_secrets_are_redacted_not_echoed() {
     use kepler_policy::guardian::Guardian;

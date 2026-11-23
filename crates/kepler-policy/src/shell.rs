@@ -73,6 +73,25 @@ struct Ctx<'a> {
     verdict: ShellVerdict,
     nodes: usize,
     roots: &'a [PathBuf],
+    real_cache: HashMap<String, Option<String>>,
+}
+
+impl Ctx<'_> {
+    /// Real path of an existing file, cached per analysis (each lookup is a syscall) and
+    /// skipped for words that cannot be paths (options, huge or empty words).
+    fn real(&mut self, raw: &str) -> Option<String> {
+        if raw.len() < 2 || raw.len() > 300 || raw.starts_with('-') {
+            return None;
+        }
+        if let Some(hit) = self.real_cache.get(raw) {
+            return hit.clone();
+        }
+        let r = resolve_real(raw, self.roots);
+        if self.real_cache.len() < 512 {
+            self.real_cache.insert(raw.to_string(), r.clone());
+        }
+        r
+    }
 }
 
 /// Analyze `cmd`. `roots` are project directories used to resolve relative paths through
@@ -82,6 +101,7 @@ pub fn analyze(cmd: &str, roots: &[PathBuf]) -> ShellVerdict {
         verdict: ShellVerdict::default(),
         nodes: 0,
         roots,
+        real_cache: HashMap::new(),
     };
     for mode in [Mode::Posix, Mode::Windows] {
         let mut vars = HashMap::new();
@@ -1227,7 +1247,7 @@ fn check_write_target(raw: &str, ctx: &mut Ctx<'_>) {
         return;
     }
     let mut cands = vec![raw.to_string()];
-    if let Some(real) = resolve_real(raw, ctx.roots) {
+    if let Some(real) = ctx.real(raw) {
         cands.push(real);
     }
     for c in cands {
@@ -1377,8 +1397,8 @@ fn check_word(w: &str, ctx: &mut Ctx<'_>) {
     }
     let mut cands: Vec<&str> = vec![w];
     for sep in ['=', '@', ','] {
-        for part in w.split(sep) {
-            cands.push(part);
+        if w.contains(sep) {
+            cands.extend(w.split(sep));
         }
     }
     if let Some((_, r)) = w.split_once(':') {
@@ -1393,7 +1413,7 @@ fn check_word(w: &str, ctx: &mut Ctx<'_>) {
             ctx.verdict.deny("sensitive_path_in_command");
             return;
         }
-        if let Some(real) = resolve_real(c, ctx.roots) {
+        if let Some(real) = ctx.real(c) {
             if is_sensitive_path(&real) || extra_sensitive(&real) {
                 ctx.verdict.deny("sensitive_path_via_link");
                 return;
