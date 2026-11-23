@@ -1,6 +1,7 @@
 use crate::classify::{classify_input, InputClass};
 use crate::decision::{Decision, Derived, Verdict};
-use crate::preflight::preflight_tool_call;
+use crate::guardian::Guardian;
+use crate::tokens::{estimate_tokens, ModelFamily};
 use kepler_events::{ContextRequested, Envelope, Payload};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::time::{Duration, Instant};
@@ -88,6 +89,7 @@ pub struct PolicyEngine {
     modules: Vec<Box<dyn OptionalModule>>,
     stages: Vec<Box<dyn OutputStage>>,
     budget: Duration,
+    guardian: Guardian,
 }
 
 impl Default for PolicyEngine {
@@ -103,7 +105,17 @@ impl PolicyEngine {
             modules: Vec::new(),
             stages: Vec::new(),
             budget,
+            guardian: Guardian::default(),
         }
+    }
+
+    /// Replace the Guardian (e.g. with user rules). Rules only add restrictions.
+    pub fn set_guardian(&mut self, g: Guardian) {
+        self.guardian = g;
+    }
+
+    pub fn guardian(&self) -> &Guardian {
+        &self.guardian
     }
 
     /// Register an optional module. Returns `false` (and drops it) past [`MAX_MODULES`].
@@ -138,11 +150,23 @@ impl PolicyEngine {
         match &event.payload {
             Payload::ToolCallRequested(call) => {
                 // Security boundary: no verdict (panic) => deny, never passthrough.
-                let d = catch_unwind(AssertUnwindSafe(|| preflight_tool_call(call)))
+                let d = catch_unwind(AssertUnwindSafe(|| self.guardian.preflight(call)))
                     .unwrap_or_else(|_| Decision::Deny {
                         reason: "preflight_failure".into(),
                     });
                 Verdict::new(d)
+            }
+            Payload::ToolCallCompleted(done) => {
+                // Security check, fail closed: if the scan cannot run, withhold the output.
+                let scan = catch_unwind(AssertUnwindSafe(|| self.guardian.scan_result(done)))
+                    .unwrap_or_else(|_| Decision::Redact {
+                        reason: "scan_failure".into(),
+                        kinds: Vec::new(),
+                    });
+                match scan {
+                    Decision::Redact { .. } => Verdict::new(scan),
+                    _ => self.observe(event),
+                }
             }
             Payload::InputReceived(input) => {
                 let class = classify_input(&input.text);
@@ -181,6 +205,7 @@ impl PolicyEngine {
         Verdict {
             decision: Decision::passthrough("observe_only"),
             degraded,
+            estimated_tokens: None,
         }
     }
 
@@ -241,12 +266,22 @@ impl PolicyEngine {
             }
         }
         cap_total(&mut derived, &mut degraded);
-        let decision = if derived.is_empty() {
-            Decision::passthrough("no_enrichment")
-        } else {
-            Decision::Enrich { derived }
-        };
-        Verdict { decision, degraded }
+        if derived.is_empty() {
+            return Verdict {
+                decision: Decision::passthrough("no_enrichment"),
+                degraded,
+                estimated_tokens: None,
+            };
+        }
+        let tokens: u32 = derived
+            .iter()
+            .map(|d| estimate_tokens(&d.text, ModelFamily::Generic).tokens)
+            .sum();
+        Verdict {
+            decision: Decision::Enrich { derived },
+            degraded,
+            estimated_tokens: Some(tokens),
+        }
     }
 }
 
@@ -530,6 +565,44 @@ mod tests {
             r#"{"tool":"bash","command":"cargo build"}"#,
         ));
         assert!(v.decision.is_passthrough());
+    }
+
+    #[test]
+    fn tool_results_with_secrets_are_redacted_and_never_echoed() {
+        let e = PolicyEngine::default();
+        let v = e.evaluate(&ev(
+            "tool.call.completed",
+            r#"{"tool":"bash","ok":true,"output_bytes":40,"duration_ms":3,"output_excerpt":"DB_PASSWORD=hunter2hunter2 and AKIAIOSFODNN7EXAMPLE"}"#,
+        ));
+        match &v.decision {
+            Decision::Redact { reason, kinds } => {
+                assert_eq!(reason, "secret_in_tool_result");
+                assert!(!kinds.is_empty());
+            }
+            d => panic!("{d:?}"),
+        }
+        let wire = serde_json::to_string(&v).unwrap();
+        assert!(
+            !wire.contains("hunter2") && !wire.contains("AKIAIOSFODNN7EXAMPLE"),
+            "{wire}"
+        );
+        let clean = e.evaluate(&ev(
+            "tool.call.completed",
+            r#"{"tool":"bash","ok":true,"output_bytes":10,"duration_ms":3,"output_excerpt":"3 tests passed"}"#,
+        ));
+        assert_eq!(clean.decision, Decision::passthrough("observe_only"));
+    }
+
+    #[test]
+    fn enrichment_reports_estimated_tokens_only_when_enriched() {
+        let mut e = PolicyEngine::new(Duration::from_secs(1));
+        e.register(Box::new(Fixed("f", one("some derived text here"))));
+        let v = e.evaluate(&input("refactor the parser please"));
+        assert!(v.estimated_tokens.is_some_and(|t| t > 0));
+        let wire = serde_json::to_value(&v).unwrap();
+        assert!(wire["estimated_tokens"].as_u64().unwrap() > 0);
+        let none = PolicyEngine::default().evaluate(&input("refactor the parser please"));
+        assert!(none.estimated_tokens.is_none());
     }
 
     #[test]

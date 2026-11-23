@@ -239,9 +239,64 @@ fn looks_secret(tok: &str) -> bool {
     false
 }
 
+/// Names of the kinds of secret found in `text` (empty = nothing found). Kinds are coarse
+/// categories, never the secret itself. Built on [`redact`]: whatever it would remove counts.
+pub fn detect_secrets(text: &str) -> Vec<&'static str> {
+    if redact(text) == text {
+        return Vec::new();
+    }
+    let probes: &[(&str, &str)] = &[
+        ("-----BEGIN", "private_key"),
+        ("AKIA", "aws_access_key"),
+        ("ASIA", "aws_access_key"),
+        ("ghp_", "github_token"),
+        ("github_pat_", "github_token"),
+        ("gho_", "github_token"),
+        ("glpat-", "gitlab_token"),
+        ("xox", "slack_token"),
+        ("sk-", "api_key"),
+        ("AIza", "google_api_key"),
+        ("npm_", "npm_token"),
+        ("eyJ", "jwt"),
+        ("Bearer ", "bearer_credential"),
+        ("Basic ", "basic_credential"),
+    ];
+    let mut kinds: Vec<&'static str> = Vec::new();
+    for (needle, kind) in probes {
+        if text.contains(needle) && !kinds.contains(kind) {
+            kinds.push(kind);
+        }
+    }
+    if kinds.is_empty() {
+        kinds.push("credential_pattern");
+    }
+    kinds
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detect_secrets_names_kinds_without_leaking() {
+        assert!(detect_secrets("plain output: 3 tests passed").is_empty());
+        assert!(detect_secrets("src/main.rs:10: error[E0308]").is_empty());
+        let k = detect_secrets(
+            "-----BEGIN RSA PRIVATE KEY-----
+abc
+-----END RSA PRIVATE KEY-----",
+        );
+        assert_eq!(k, vec!["private_key"]);
+        assert!(detect_secrets("aws AKIAIOSFODNN7EXAMPLE here").contains(&"aws_access_key"));
+        assert!(
+            detect_secrets("token ghp_abcdefghijklmnopqrstuvwxyz0123456789")
+                .contains(&"github_token")
+        );
+        assert!(detect_secrets("DB_PASSWORD=hunter2").contains(&"credential_pattern"));
+        for kind in detect_secrets("export API_KEY=abc123xyz") {
+            assert!(!kind.contains("abc123"));
+        }
+    }
 
     fn gone(input: &str, secret: &str) {
         let out = redact(input);

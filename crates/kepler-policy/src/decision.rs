@@ -41,6 +41,9 @@ pub enum Decision {
     RequireApproval { reason: String },
     /// Must not run.
     Deny { reason: String },
+    /// A tool result contains secrets: the harness should withhold or replace it.
+    /// `kinds` are coarse categories (never the secret). Additive wire value (ADR-0011).
+    Redact { reason: String, kinds: Vec<String> },
 }
 
 impl Decision {
@@ -61,6 +64,9 @@ pub struct Verdict {
     pub decision: Decision,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub degraded: Vec<String>,
+    /// Kepler's own *estimate* of the tokens in `derived` (never a measurement). Only on `enrich`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_tokens: Option<u32>,
 }
 
 impl Verdict {
@@ -68,6 +74,7 @@ impl Verdict {
         Self {
             decision,
             degraded: Vec::new(),
+            estimated_tokens: None,
         }
     }
 }
@@ -88,6 +95,7 @@ mod tests {
         let d = Verdict {
             decision: Decision::Deny { reason: "x".into() },
             degraded: vec!["m: failed".into()],
+            estimated_tokens: Some(12),
         };
         let back: Verdict = serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();
         assert_eq!(back, d);

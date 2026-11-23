@@ -28,6 +28,7 @@ impl EventRecord {
             Decision::Enrich { .. } => ("enrich", None),
             Decision::RequireApproval { reason } => ("require_approval", Some(reason.as_str())),
             Decision::Deny { reason } => ("deny", Some(reason.as_str())),
+            Decision::Redact { reason, .. } => ("redact", Some(reason.as_str())),
         };
         Self {
             event_id: e.id.clone(),

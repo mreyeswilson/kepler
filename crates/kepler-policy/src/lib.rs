@@ -13,6 +13,7 @@
 mod classify;
 mod decision;
 mod engine;
+pub mod guardian;
 mod preflight;
 pub mod redact;
 pub mod sensitive;
@@ -23,6 +24,9 @@ pub use decision::{Decision, Derived, Verdict};
 pub use engine::{
     Enrichment, ModuleError, OptionalModule, OutputStage, PolicyEngine, Provenance, MAX_MODULES,
     MAX_STAGES, MAX_TOTAL_DERIVED_BYTES,
+};
+pub use guardian::{
+    BudgetStage, Guardian, GuardianRules, DEFAULT_CONTEXT_BUDGET_TOKENS, MAX_RULES,
 };
 pub use preflight::preflight_tool_call;
 pub use tokens::{estimate_tokens, Basis, ModelFamily, TokenCount};

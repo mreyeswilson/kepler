@@ -23,4 +23,6 @@ tokio = { workspace = true, features = ["rt", "time", "signal", "sync", "net", "
 
 [dev-dependencies]
 kepler-memory.workspace = true
+kepler-policy.workspace = true
+kepler-storage.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "time", "signal", "sync", "net", "io-util", "macros"] }

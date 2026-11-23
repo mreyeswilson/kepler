@@ -22,6 +22,10 @@ struct Running {
 }
 
 fn start() -> Running {
+    start_with(|_| {})
+}
+
+fn start_with(tweak: impl FnOnce(&mut DaemonConfig)) -> Running {
     let n = N.fetch_add(1, Ordering::SeqCst);
     let ep = Endpoint::new(&format!("pipe{}-{n}", std::process::id())).unwrap();
     let dir = std::env::temp_dir().join(format!("kepler-pipe-e2e-{}-{n}", std::process::id()));
@@ -30,6 +34,7 @@ fn start() -> Running {
     let mut cfg = DaemonConfig::new(ep.clone());
     cfg.db_path = Some(db.clone());
     cfg.idle_shutdown = None;
+    tweak(&mut cfg);
     let daemon = Daemon::start(cfg).unwrap();
     assert!(daemon.warnings.is_empty(), "{:?}", daemon.warnings);
     let (stop, rx) = tokio::sync::oneshot::channel::<()>();
@@ -59,8 +64,8 @@ async fn client(ep: &Endpoint) -> Client {
 }
 
 /// Memory writes are asynchronous (single writer): wait until `n` live memories exist.
-async fn wait_for_memories(db: &PathBuf, n: i64) {
-    let admin = MemoryAdmin::new(db.clone());
+async fn wait_for_memories(db: &std::path::Path, n: i64) {
+    let admin = MemoryAdmin::new(db);
     let start = Instant::now();
     while admin.stats(None).map(|s| s.live).unwrap_or(0) < n {
         assert!(
@@ -208,4 +213,123 @@ async fn secrets_never_reach_the_memory_database() {
     all.extend(std::fs::read(r.db.with_extension("db-wal")).unwrap_or_default());
     assert!(!String::from_utf8_lossy(&all).contains("sk-abcdefghijklmnop"));
     assert!(String::from_utf8_lossy(&all).contains("fridays"));
+}
+
+#[tokio::test]
+async fn guardian_preflight_rules_and_result_scan_through_the_daemon() {
+    let r = start_with(|cfg| {
+        cfg.pipeline.guardian_rules = kepler_policy::GuardianRules::parse(
+            "deny-path infra/prod\napprove-command kubectl apply\n",
+        )
+        .0;
+    });
+    let mut c = client(&r.ep).await;
+    let call = |id: &str, payload: Value| event(id, "g1", "tool.call.requested", payload);
+
+    let v = c
+        .send_event_value(call("t1", json!({"tool":"bash","command":"cat .env"})))
+        .await
+        .unwrap();
+    assert!(matches!(v.decision, Decision::Deny { .. }));
+    let v = c
+        .send_event_value(call(
+            "t2",
+            json!({"tool":"write","paths":["infra/prod/main.tf"]}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        v.decision,
+        Decision::Deny {
+            reason: "user_rule_deny_path".into()
+        }
+    );
+    let v = c
+        .send_event_value(call(
+            "t3",
+            json!({"tool":"bash","command":"kubectl apply -f x.yaml"}),
+        ))
+        .await
+        .unwrap();
+    assert!(matches!(v.decision, Decision::RequireApproval { .. }));
+    let v = c
+        .send_event_value(call("t4", json!({"tool":"bash","command":"cargo test"})))
+        .await
+        .unwrap();
+    assert!(v.decision.is_passthrough());
+
+    // A tool result leaking a secret: redact verdict, secret neither echoed nor persisted.
+    let secret = "AKIAIOSFODNN7EXAMPLE";
+    let v = c
+        .send_event_value(event(
+            "t5",
+            "g1",
+            "tool.call.completed",
+            json!({"tool":"bash","ok":true,"output_bytes":50,"duration_ms":4,
+                   "output_excerpt": format!("config dump: aws_key {secret} done")}),
+        ))
+        .await
+        .unwrap();
+    match &v.decision {
+        Decision::Redact { kinds, .. } => assert!(kinds.contains(&"aws_access_key".to_string())),
+        d => panic!("{d:?}"),
+    }
+    assert!(!serde_json::to_string(&v).unwrap().contains(secret));
+    drop(c);
+    r.stop.send(()).unwrap();
+    r.task.await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut all = std::fs::read(&r.db).unwrap();
+    all.extend(std::fs::read(r.db.with_extension("db-wal")).unwrap_or_default());
+    assert!(!String::from_utf8_lossy(&all).contains(secret));
+    let reader = kepler_storage::Reader::open(&r.db).unwrap();
+    let decisions: Vec<String> = reader
+        .recent_events(10)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.decision)
+        .collect();
+    assert!(decisions.contains(&"redact".to_string()), "{decisions:?}");
+}
+
+#[tokio::test]
+async fn token_metrics_are_labeled_estimated_or_measured() {
+    let r = start();
+    let mut c = client(&r.ep).await;
+    // Kepler's own derived context: an estimate.
+    let v = c
+        .send_event_value(input("m1", "m1", "fix the bug in the login flow please"))
+        .await
+        .unwrap();
+    assert!(v.estimated_tokens.is_some_and(|t| t > 0), "{v:?}");
+    // Harness-reported usage keeps its own label.
+    c.send_event_value(event(
+        "m2",
+        "m1",
+        "context.prepared",
+        json!({"items": 4, "tokens": 1234, "estimated": false}),
+    ))
+    .await
+    .unwrap();
+    let start = Instant::now();
+    let reader = loop {
+        let rd = kepler_storage::Reader::open(&r.db).unwrap();
+        if rd.recent_metrics(10).unwrap().len() >= 2 {
+            break rd;
+        }
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "metrics not written"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let m = reader.recent_metrics(10).unwrap();
+    let derived = m.iter().find(|m| m.kind == "derived_context").unwrap();
+    assert!(derived.estimated);
+    let harness = m.iter().find(|m| m.kind == "harness_context").unwrap();
+    assert!(!harness.estimated);
+    assert_eq!(harness.tokens, 1234);
+    drop(c);
+    r.stop.send(()).unwrap();
+    r.task.await.unwrap();
 }

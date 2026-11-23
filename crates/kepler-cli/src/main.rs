@@ -242,6 +242,9 @@ async fn daemon_cmd(idle_timeout_secs: u64, no_storage: bool) -> ExitCode {
     let endpoint = Endpoint::from_env();
     let mut cfg = DaemonConfig::new(endpoint.clone());
     cfg.pipeline = kepler_core::PipelineConfig::from_env();
+    for w in &cfg.pipeline.warnings {
+        eprintln!("kepler: warning: {w}");
+    }
     cfg.idle_shutdown = (idle_timeout_secs > 0).then(|| Duration::from_secs(idle_timeout_secs));
     if !no_storage {
         match kepler_storage::dirs::db_path() {
