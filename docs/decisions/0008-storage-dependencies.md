@@ -1,4 +1,4 @@
-# ADR-0006: Runtime dependencies for Delivery 0 (SQLite binding and friends)
+# ADR-0008: Runtime dependencies for Delivery 0 (SQLite binding and friends)
 
 **Status:** Accepted (implemented in Delivery 0)
 

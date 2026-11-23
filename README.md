@@ -2,7 +2,7 @@
 
 **Intelligent Execution Control for Coding Agents** — runtime local-first que reduce desvíos, trabajo innecesario, afirmaciones sin evidencia y tiempos excesivos.
 
-> Estado: diseño y documentación inicial. Sin implementación funcional.
+> Estado: núcleo Rust de la Delivery 0 en desarrollo (eventos, políticas, IPC, almacenamiento, CLI básico). Sin integración con ningún harness todavía; ver "Estado de implementación".
 
 ## Objetivo
 
@@ -64,14 +64,20 @@ Kepler mejora la experiencia de desarrollo con Pi, Claude Code, Codex, Gemini CL
 
 ## Desarrollo
 
-El proyecto está en fase de especificación. Los ejemplos de comandos y nombres de paquetes son **propuestas**, no herramientas publicadas ni ejecutables:
+### Estado de implementación (Delivery 0, rama `feat/rust-core-d0`)
+
+Existe un workspace Rust (`crates/`) con tests. **Implementado y probado:** envelope de eventos v1 con fixtures compartidos, negociación de las 8 capacidades, motor de políticas determinista (passthrough por defecto, preflight de herramientas fail-closed), IPC local (Unix socket / named pipe del usuario actual, ver [ADR-0007](docs/decisions/0007-ipc-wire-protocol.md)), daemon lazy con apagado por inactividad, SQLite (WAL, FTS5, migraciones) con redacción de secretos y denylist de rutas, y los comandos `kepler doctor | daemon | emit | version`.
+
+**No implementado todavía:** adaptador Pi (el paquete sigue siendo un esqueleto que no envía eventos), Forge, Memory (solo existe la tabla y su API de almacenamiento), Guardian, Orbit, Sentinel, Vision, MCP, detección de harnesses, binarios/instalación, benchmarks medidos ([notas](docs/development/PERFORMANCE.md)). La licencia sigue pendiente (`publish = false`, `UNLICENSED` en Cargo). El código Unix del transporte aún no se ha ejecutado fuera de Windows; lo cubrirá la matriz de CI.
 
 ```bash
-kepler init
-kepler doctor
-kepler detect
-kepler mcp serve
+cargo build --workspace
+cargo run -p kepler-cli -- doctor        # diagnóstico de solo lectura
+cargo run -p kepler-cli -- emit --in-process --json '{...evento v1...}'
+cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
+
+Los siguientes comandos siguen siendo **propuestas** sin implementar: `kepler init`, `kepler detect`, `kepler mcp serve`.
 
 El esqueleto del paquete Pi está en `adapters/pi` (marcado `private: true`, **sin publicación npm ni hooks funcionales**). La futura instalación pública será `pi install npm:@kepler/pi`, sujeta a disponibilidad del nombre y pruebas de publicación.
 

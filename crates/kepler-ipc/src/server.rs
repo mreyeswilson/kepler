@@ -1,4 +1,4 @@
-//! Bounded, timeout-driven connection server. See ADR-0005 for the protocol.
+//! Bounded, timeout-driven connection server. See ADR-0007 for the protocol.
 
 use crate::frame::{read_frame, write_json, FrameError};
 use crate::transport::{IpcStream, Listener};

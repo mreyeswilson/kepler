@@ -51,3 +51,6 @@ Each capability has an implementation kind (native hook, MCP tool, CLI, unsuppor
 - Optional-module failure falls back without changing original input.
 - Security-sensitive preflight never becomes fail-open.
 - Events may be observed but not mutated when harness forbids mutation.
+
+## Implementation status (Delivery 0)
+The v1 envelope, the 11 payload kinds, size limits and capability negotiation are implemented in `crates/kepler-events` and tested against the shared fixtures in `fixtures/events/` (see `manifest.json`; TypeScript adapters should consume the same files). The wire protocol that carries events is specified in [ADR-0007](../decisions/0007-ipc-wire-protocol.md). Ordering steps 2-7 above (Forge, Memory, Guardian, Sentinel, Vision) are not implemented; the core currently classifies deterministically and returns passthrough or a tool-preflight verdict.

@@ -1,7 +1,7 @@
 # Getting started (planned workflow)
 
 ## Current status
-A Pi npm **package scaffold** now exists under `adapters/pi`, but no functional Kepler CLI, hook integration or Rust source exists yet. This document describes the intended development environment, not a working installer.
+A Pi npm **package scaffold** exists under `adapters/pi` (non-functional). The Rust workspace under `crates/` implements Delivery 0 (events, capabilities, policy, IPC, storage, daemon, `kepler doctor|daemon|emit|version`) with tests; there is **no hook integration, no installer and no published binary**. See the README status section and the [performance notes](PERFORMANCE.md).
 
 ## Prerequisites
 - Rust stable toolchain using rustup

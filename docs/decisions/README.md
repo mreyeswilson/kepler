@@ -8,5 +8,7 @@ Status of all records below: **proposed for implementation**. These capture the 
 - [ADR-0004: Conditional automation](0004-conditional-automation.md)
 - [ADR-0005: Focus execution control](0005-focus-execution-control.md)
 - [ADR-0006: Genesis design worker](0006-genesis-design-workflow.md)
+- [ADR-0007: IPC wire protocol](0007-ipc-wire-protocol.md) (implemented in `kepler-ipc`)
+- [ADR-0008: Delivery 0 runtime dependencies (SQLite binding, Tokio, serde, clap)](0008-storage-dependencies.md)
 
 New ADR format: Context, Decision, Consequences, Alternatives, Status.

@@ -1,4 +1,4 @@
-# ADR-0005: IPC wire protocol
+# ADR-0007: IPC wire protocol
 
 **Status:** Accepted (implemented in `kepler-ipc`, Delivery 0)
 

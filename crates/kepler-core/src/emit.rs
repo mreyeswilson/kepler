@@ -11,7 +11,7 @@ pub enum EmitOutcome {
     Verdict(Verdict),
     /// Core unavailable/slow/erroring: the original input proceeds untouched.
     Passthrough { reason: String },
-    /// The event itself is invalid or was refused (code is stable, see ADR-0005).
+    /// The event itself is invalid or was refused (code is stable, see ADR-0007).
     Rejected { code: String, message: String },
 }
 

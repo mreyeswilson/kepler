@@ -1,4 +1,4 @@
-//! Where the per-user daemon listens. Naming rules are part of the protocol (ADR-0005).
+//! Where the per-user daemon listens. Naming rules are part of the protocol (ADR-0007).
 
 use std::fmt;
 

@@ -41,3 +41,20 @@
 | KPL-036 | P2 | Genesis Vision/Sentinel feedback | Render on demand, compare/validate and bound correction loops |
 
 Each issue should include owner (when assigned), dependencies, security implications, tests and performance targets. IDs are planning identifiers, not existing GitHub issues.
+
+## Status (Delivery 0, Rust core on branch `feat/rust-core-d0`)
+
+Status is only "done" when code **and** tests exist. Measured performance is not claimed (see
+[performance notes](../development/PERFORMANCE.md)).
+
+| ID | Status | Notes |
+|---|---|---|
+| KPL-001 | Done | Cargo workspace, `[workspace.lints]`, rustfmt/clippy config, `.github/workflows/ci.yml` (fmt, clippy `-D warnings`, test on ubuntu/macos/windows). The CI matrix has only been run locally on Windows so far. |
+| KPL-002 | Done | `kepler-events`: v1 envelope, bounded typed payloads, strict validation, shared JSON fixtures in `fixtures/events`. |
+| KPL-003 | Done (D0 scope) | `kepler-policy`: deterministic engine, passthrough default/fallback, fail-closed tool preflight, minimal rule-based classifier. No enrichment modules exist yet (Forge/Memory are Delivery 1). |
+| KPL-004 | Done | 8 capabilities, negotiation, explicit `unsupported` (MCP/CLI never grant interception). |
+| KPL-005 | Partial | Unix socket / named pipe with current-user isolation, handshake, limits, timeouts. No persistent reconnecting client: one-shot clients reconnect by lazily starting the daemon. Unix transport code is written but was not executed on Unix by the author (CI will). |
+| KPL-006 | Partial | `kepler doctor` reports runtime, IPC endpoint, database and capability contract. Adapter section is static text: harness detection is not implemented. |
+| KPL-007 | Done | SQLite WAL + FTS5, versioned migrations, single writer, privacy defaults, redaction, sensitive path denylist. Memory write/search APIs exist but nothing calls them yet (Delivery 1). |
+| KPL-008 | Not started | The Pi adapter does not send events. A TypeScript IPC client must implement ADR-0007. |
+| KPL-009..KPL-020 | Not started | Except KPL-017 (scaffold existed before this delivery); publishing stays disabled. |

@@ -1,5 +1,5 @@
 //! Local IPC between harness adapters and the Kepler daemon.
-//! Wire protocol: see `docs/decisions/0005-ipc-wire-protocol.md`.
+//! Wire protocol: see `docs/decisions/0007-ipc-wire-protocol.md`.
 
 pub mod client;
 pub mod endpoint;

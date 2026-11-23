@@ -28,3 +28,15 @@ A hook cannot govern operations outside its interception path. MCP alone cannot 
 
 ## Required security tests
 Untrusted repo instructions, leaking .env via tool result, IPC access from other user, write cancellation, malformed events, path traversal, forged session IDs, and high-volume event flooding.
+
+## Test coverage status (Delivery 0)
+| Required test | Status |
+|---|---|
+| Malformed events | Covered: `kepler-events` fixtures, `kepler-ipc` and `kepler-core` e2e tests |
+| High-volume event flooding | Covered for correctness/boundedness: pipelined request flood, 16x250 concurrent events, connection flood over the limit; throughput not measured |
+| Forged session IDs | Covered: invalid ids rejected; live session cannot be impersonated by another connection (`session_conflict`). Not authentication: same-user processes are trusted |
+| Path traversal | Covered: `resolve_within` and denylist normalization tests (`..`, absolute paths, NTFS stream/trailing-dot tricks) |
+| Leaking .env via tool result | Covered: tool output is never persisted; `.env` reads are denied by the preflight; DB bytes scanned in tests |
+| Write cancellation | Partial: writer drains/commits per short transaction and drops on overflow; no cancellation API yet |
+| IPC access from another user | **Not tested.** Unix `0600`/`0700` and the Windows current-user DACL are implemented (the SDDL is unit-tested) but no second OS account was used to attempt access |
+| Untrusted repo instructions | Not applicable yet (no Forge/Memory consumption of repo text) |
