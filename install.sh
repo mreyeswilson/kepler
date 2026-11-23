@@ -84,7 +84,7 @@ fetch_status() {
       ;;
     file://*)
       if fetch "$1" "$2" 2>/dev/null; then return 0; fi
-      FETCH_CODE=file
+      FETCH_CODE="file"
       return 1
       ;;
     *) die "refusing non-HTTPS URL: $1" ;;
