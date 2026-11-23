@@ -13,9 +13,10 @@ use std::time::Instant;
 static N: AtomicU64 = AtomicU64::new(0);
 
 fn fake_claude() -> PathBuf {
-    // target/<profile>/deps/<test>.exe -> target/<profile>/examples/fake_claude(.exe)
-    let mut p = std::env::current_exe().unwrap();
-    p.pop();
+    // target/<profile>/kepler(.exe) -> target/<profile>/examples/fake_claude(.exe).
+    // Not derived from current_exe(): newer cargo keeps test binaries under
+    // target/<profile>/build/<pkg>/<hash>/, while final artifacts stay in target/<profile>/.
+    let mut p = PathBuf::from(env!("CARGO_BIN_EXE_kepler"));
     p.pop();
     p.push("examples");
     p.push(format!("fake_claude{}", std::env::consts::EXE_SUFFIX));
