@@ -432,6 +432,91 @@ Step 'orbit agent task with real claude (-WithClaude)' {
   'claude -p answered PONG in the task worktree'
 }
 
+# ------------------------------------------------------------------ Claude Code hook (cold: no daemon running)
+function Hook([string]$event, [string]$stdin) {
+  K @('hook', 'claude-code', $event) $stdin 60
+}
+
+Step 'hook claude-code PreToolUse: rm -rf => ask' {
+  $p = @{ session_id = 'acc-1'; cwd = $work; hook_event_name = 'PreToolUse'; tool_name = 'Bash'; tool_input = @{ command = 'rm -rf /' } } | ConvertTo-Json -Depth 5
+  $r = Hook 'PreToolUse' $p
+  Assert ($r.Code -eq 0) "exit $($r.Code): $($r.Err)"
+  $o = $r.Out | ConvertFrom-Json
+  Assert ($o.hookSpecificOutput.permissionDecision -eq 'ask') "decision=$($o.hookSpecificOutput.permissionDecision): $($r.Out)"
+  'permissionDecision=ask'
+}
+
+Step 'hook claude-code PreToolUse: Read .env => deny' {
+  $p = @{ session_id = 'acc-1'; cwd = $work; hook_event_name = 'PreToolUse'; tool_name = 'Read'; tool_input = @{ file_path = (Join-Path $work '.env') } } | ConvertTo-Json -Depth 5
+  $r = Hook 'PreToolUse' $p
+  Assert ($r.Code -eq 0) "exit $($r.Code): $($r.Err)"
+  $o = $r.Out | ConvertFrom-Json
+  Assert ($o.hookSpecificOutput.permissionDecision -eq 'deny') "decision=$($o.hookSpecificOutput.permissionDecision): $($r.Out)"
+  'permissionDecision=deny'
+}
+
+Step 'hook claude-code PreToolUse: ls => silence' {
+  $p = @{ session_id = 'acc-1'; cwd = $work; hook_event_name = 'PreToolUse'; tool_name = 'Bash'; tool_input = @{ command = 'ls' } } | ConvertTo-Json -Depth 5
+  $r = Hook 'PreToolUse' $p
+  Assert ($r.Code -eq 0) "exit $($r.Code): $($r.Err)"
+  Assert ($r.Out.Trim() -eq '') "expected no output, got: $($r.Out)"
+  'exit 0, empty stdout'
+}
+
+Step 'hook claude-code: garbage JSON => exit 0' {
+  foreach ($ev in 'PreToolUse', 'UserPromptSubmit', 'PostToolUse', 'Stop') {
+    $r = Hook $ev 'this is { not json'
+    Assert ($r.Code -eq 0) "$ev exit $($r.Code): $($r.Err)"
+  }
+  'never fatal on invalid input'
+}
+
+Step 'hook claude-code --print-settings' {
+  $r = K @('hook', 'claude-code', '--print-settings')
+  Assert ($r.Code -eq 0) "exit $($r.Code): $($r.Err)"
+  $o = $r.Out | ConvertFrom-Json
+  Assert ($o.hooks.PreToolUse) "no PreToolUse hook: $($r.Out)"
+  'settings block generated'
+}
+
+# ------------------------------------------------------------------ sentinel check
+Step 'sentinel check (project command, recorded finding)' {
+  $repo = New-Repo 'sentinel-check-repo'
+  $ok = KJson @('sentinel', 'check', '--repo', $repo, '--cmd', 'git-status=git status', '--json') 120
+  Assert ($ok.Code -eq 0) "passing command: exit $($ok.Code): $($ok.Err)"
+  $bad = KJson @('sentinel', 'check', '--repo', $repo, '--cmd', 'bad=git no-such-subcommand', '--json') 120
+  Assert ($bad.Code -ne 0 -or $bad.V) "failing command produced neither exit code nor report"
+  $dn = K @('sentinel', 'check', '--repo', $repo, '--cmd', 'wipe=rm -rf /', '--json') 60
+  Assert ($dn.Out -notmatch '"exit_code":\s*0' -or $dn.Code -ne 0) 'a destructive command must not run silently'
+  'passing check ok; failing check reported; destructive command gated'
+}
+
+# ------------------------------------------------------------------ ui (Genesis local panel)
+Step 'ui: starts with a token, refuses without one' {
+  $so = Join-Path $work 'ui.out'; $se = Join-Path $work 'ui.err'
+  $p = Start-Process -FilePath $Kepler -ArgumentList @('ui', '--json') -NoNewWindow -PassThru -RedirectStandardOutput $so -RedirectStandardError $se
+  try {
+    $line = $null
+    for ($i = 0; $i -lt 50 -and -not $line; $i++) {
+      Start-Sleep -Milliseconds 200
+      if (Test-Path $so) { $line = Get-Content $so -ErrorAction SilentlyContinue | Select-Object -First 1 }
+    }
+    Assert $line "ui printed nothing: $(Get-Content $se -Raw -ErrorAction SilentlyContinue)"
+    $info = $line | ConvertFrom-Json
+    $base = "http://127.0.0.1:$($info.port)"
+    $noTok = try { (Invoke-WebRequest -Uri "$base/api/overview" -UseBasicParsing -MaximumRedirection 0).StatusCode } catch { [int]$_.Exception.Response.StatusCode }
+    Assert ($noTok -eq 401) "without token expected 401, got $noTok"
+    $wrong = try { (Invoke-WebRequest -Uri "$base/?t=wrong" -UseBasicParsing -MaximumRedirection 0).StatusCode } catch { [int]$_.Exception.Response.StatusCode }
+    Assert ($wrong -eq 401) "wrong token expected 401, got $wrong"
+    $hdr = @{ Authorization = "Bearer $($info.token)" }
+    $ov = Invoke-WebRequest -Uri "$base/api/overview" -Headers $hdr -UseBasicParsing
+    Assert ($ov.StatusCode -eq 200) "with token expected 200, got $($ov.StatusCode)"
+    "401 without/wrong token, 200 with token (port $($info.port))"
+  } finally {
+    if ($p -and -not $p.HasExited) { & taskkill /PID $p.Id /T /F | Out-Null }
+  }
+}
+
 # ------------------------------------------------------------------ report
 Start-Sleep -Milliseconds 300
 try { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue } catch {}
