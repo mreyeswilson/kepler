@@ -2,8 +2,8 @@
 
 ## Components
 1. Harness adapters (Pi first) normalize hooks and commands into versioned events.
-2. Kepler Core (Rust) hosts event dispatcher, policy engine, execution budgets, module registry and capability negotiation.
-3. Modules implement Forge, Memory, Guardian, Orbit, Sentinel and Vision.
+2. Kepler Core (Rust) hosts event dispatcher, **Focus execution-control engine**, policy engine, execution budgets, module registry and capability negotiation.
+3. Modules implement Forge, Memory, Guardian, Orbit, Sentinel, Vision and future Genesis.
 4. SQLite persists memories, decisions, sessions and selective event metadata.
 5. MCP stdio exposes callable tools; CLI offers manual administration and diagnostics.
 6. Optional per-user daemon provides shared state; one-shot CLI is preferred for simple actions.
@@ -13,7 +13,7 @@
 Developer -> Coding Harness -> Native Adapter/Hook -> IPC
                                                   |
                                                Kepler Core
-                                     Event Bus + Policy Engine
+                                     Event Bus + Policy Engine + Focus
                                        |        |       |
                                  Forge/Memory Guardian  ...
                                        |        |       |
@@ -28,6 +28,9 @@ Developer -> Coding Harness -> Native Adapter/Hook -> IPC
 - One SQLite write coordinator; bounded readers and transaction timeouts.
 - All queues bounded, cancellable and observable.
 
+## Focus supervision
+Focus tracks the immutable request, scope boundaries, evidence, progress, repetition and adaptive execution budgets. It can observe, warn or gate operations only to the extent the harness supports interception. See [Focus specification](FOCUS.md).
+
 ## Policy strategy
 Route on intent, changed files, trust level, available capabilities, latency budget and risk.
 Return passthrough if enrichment fails or budget expires. Never silently bypass a destructive-action permission check.
@@ -38,7 +41,7 @@ Return passthrough if enrichment fails or budget expires. Never silently bypass 
 - Warm small memory retrieval: target <100 ms.
 - LLM calls for trivial instructions: zero.
 
-Measure on real repositories and track p50/p95/p99, CPU, peak/idle RSS and total workflow outcomes.
+Compare the same tasks with and without Kepler; track p50/p95/p99, CPU, peak/idle RSS, correctness, unnecessary diffs, loops and total workflow outcomes. See [benchmarks](../quality/BENCHMARKS.md).
 
 ## Expansion boundaries
 Core never imports Pi/Claude/Gemini/OpenCode SDKs. Adapter IPC and events are versioned. Worker failures and missing capabilities degrade gracefully.

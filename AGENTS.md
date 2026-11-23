@@ -6,6 +6,7 @@ You are contributing to **Kepler**, a Rust-first, local-first AI agent middlewar
 - Read `README.md`, `docs/architecture/OVERVIEW.md`, `docs/roadmap/MVP.md`, and the relevant ADRs.
 - Identify the feature scope and the harness capabilities available. Do not assume MCP alone enables interception.
 - Preserve the user's original prompt; never promote inferred requirements to confirmed user instructions.
+- Focus is central: protect task scope, ground claims in observed evidence, avoid repeated ineffective actions, and stop unnecessary polishing after verified completion.
 
 ## Architecture rules
 - Stable Rust for core, Tokio for async I/O, SQLite for persistence.
@@ -20,6 +21,8 @@ You are contributing to **Kepler**, a Rust-first, local-first AI agent middlewar
 - Never persist API keys, .env content or unredacted sensitive tool output.
 - Never execute destructive actions without approval.
 - Prefer deterministic classification before any model call.
+- Do not claim tests passed without observed test output; distinguish observations, hypotheses, and unknowns.
+- Genesis is opt-in by design intent and must not start heavyweight visual workers for unrelated tasks.
 - Write unit/integration tests with each feature and document performance impacts.
 - A failure in an optional optimization must not block ordinary agent work; security boundaries fail closed.
 - Do not claim functions are implemented until code and tests exist.

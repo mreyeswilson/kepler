@@ -1,6 +1,6 @@
 # Kepler
 
-**Universal AI Agent Runtime** — una capa de inteligencia local-first, automática y multi-harness para coding agents.
+**Intelligent Execution Control for Coding Agents** — runtime local-first que reduce desvíos, trabajo innecesario, afirmaciones sin evidencia y tiempos excesivos.
 
 > Estado: diseño y documentación inicial. Sin implementación funcional.
 
@@ -8,16 +8,18 @@
 
 Kepler mejora la experiencia de desarrollo con Pi, Claude Code, Codex, Gemini CLI, OpenCode y otros harnesses compatibles. La automatización ocurre a través de eventos nativos, hooks y adaptadores; MCP y CLI sirven como interfaces interoperables. Las capacidades automáticas varían según el harness.
 
-## Seis módulos
+## Control central y siete módulos
 
 | Módulo | Responsabilidad |
 |---|---|
+| **Focus (central)** | Protege objetivo, alcance, progreso, evidencia y presupuesto de ejecución |
 | **Forge** | Compilar instrucciones adaptativamente conservando la intención original |
 | **Memory** | Recuperar y consolidar memoria relevante con procedencia |
 | **Guardian** | Optimizar contexto, presupuestos y métricas de tokens |
 | **Orbit** | Coordinar tareas y agentes con límites y aislamiento |
 | **Sentinel** | Auditar cambios, riesgos, pruebas y seguridad |
 | **Vision** | Inspeccionar UI bajo demanda mediante Playwright |
+| **Genesis** | Diseñar interfaces, generar variaciones, componentes y código con validación posterior |
 
 ## Arquitectura de referencia
 
@@ -48,6 +50,9 @@ Kepler mejora la experiencia de desarrollo con Pi, Claude Code, Codex, Gemini CL
 - [Detección de CLI y clientes de escritorio](docs/architecture/DISCOVERY.md)
 - [Persistencia](docs/architecture/STORAGE.md)
 - [Módulos](docs/modules/README.md)
+- [Control de ejecución Focus](docs/architecture/FOCUS.md)
+- [Diseño de interfaces Genesis](docs/modules/GENESIS.md)
+- [Benchmark y métricas](docs/quality/BENCHMARKS.md)
 - [Modelo de amenazas](docs/security/THREAT_MODEL.md)
 - [Roadmap MVP](docs/roadmap/MVP.md)
 - [Backlog](docs/roadmap/BACKLOG.md)
@@ -72,7 +77,7 @@ El esqueleto del paquete Pi está en `adapters/pi` (marcado `private: true`, **s
 
 Se contempla detección de Pi, Claude Code, Claude Desktop, Codex, Gemini CLI, OpenCode, Cursor, VS Code/Copilot y otros clientes MCP. **La detección y la instalación automática son requisitos futuros; aún no están implementados.**
 
-**Primera integración objetivo:** Pi Coding Agent. **Primera entrega funcional:** núcleo de eventos + adaptador Pi + Forge y Memory.
+**Primera integración objetivo:** Pi Coding Agent. **Primera entrega funcional:** núcleo de eventos + adaptador Pi + Focus mínimo + Forge y Memory. Genesis se implementará después del núcleo de control y la validación visual.
 
 ## Licencia
 
