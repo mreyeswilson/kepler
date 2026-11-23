@@ -36,6 +36,8 @@ impl DaemonConfig {
 pub enum DaemonError {
     /// Another daemon already owns the endpoint (expected when two clients race to start one).
     AlreadyRunning,
+    /// Another daemon (other endpoint) owns this data directory; starting would silently not persist.
+    StorageLocked(std::path::PathBuf),
     Io(std::io::Error),
 }
 
@@ -43,6 +45,11 @@ impl std::fmt::Display for DaemonError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::AlreadyRunning => f.write_str("a daemon is already running for this user"),
+            Self::StorageLocked(d) => write!(
+                f,
+                "storage unavailable: another kepler daemon owns {}",
+                d.display()
+            ),
             Self::Io(e) => write!(f, "cannot start daemon: {e}"),
         }
     }
@@ -52,6 +59,8 @@ impl std::error::Error for DaemonError {}
 
 pub struct Daemon {
     listener: Listener,
+    /// Exclusive `daemon.lock` in the data dir, held for the daemon lifetime.
+    _lock: Option<std::fs::File>,
     core: Arc<Core>,
     cfg: DaemonConfig,
     /// Non-fatal problems at startup (e.g. storage unavailable). The daemon still works.
@@ -69,6 +78,10 @@ impl Daemon {
                 DaemonError::Io(e)
             }
         })?;
+        let lock = match &cfg.db_path {
+            Some(p) => acquire_lock(p)?,
+            None => None,
+        };
         let mut warnings = Vec::new();
         let storage = match &cfg.db_path {
             None => None,
@@ -88,6 +101,7 @@ impl Daemon {
         let core = Arc::new(Core::new(engine, storage));
         Ok(Self {
             listener,
+            _lock: lock,
             core,
             cfg,
             warnings,
@@ -103,5 +117,31 @@ impl Daemon {
         let mut server_cfg = self.cfg.server.clone();
         server_cfg.idle_shutdown = self.cfg.idle_shutdown;
         serve(self.listener, self.core, server_cfg, shutdown).await
+    }
+}
+
+/// Take an exclusive lock on `<data dir>/daemon.lock`. Fails (never degrades silently) when
+/// another daemon, possibly on a different endpoint, already owns the same data directory.
+fn acquire_lock(db_path: &std::path::Path) -> Result<Option<std::fs::File>, DaemonError> {
+    let dir = db_path
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_default();
+    // Filesystem problems are not lock conflicts: the writer reports them as a warning.
+    if !dir.as_os_str().is_empty() && kepler_storage::dirs::ensure_private_dir(&dir).is_err() {
+        return Ok(None);
+    }
+    let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(dir.join("daemon.lock"))
+    else {
+        return Ok(None);
+    };
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Err(DaemonError::StorageLocked(dir)),
+        Err(std::fs::TryLockError::Error(_)) => Ok(None),
     }
 }

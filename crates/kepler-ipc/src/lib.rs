@@ -4,6 +4,7 @@
 pub mod client;
 pub mod endpoint;
 pub mod frame;
+pub mod identity;
 pub mod server;
 pub mod transport;
 pub mod wire;

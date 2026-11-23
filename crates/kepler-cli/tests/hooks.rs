@@ -410,3 +410,24 @@ fn unreadable_json_exits_0_with_short_stderr_and_debug_detail() {
     assert!(!err.contains("TOPSECRETWORD"));
     assert_eq!(o.status.code(), Some(0));
 }
+
+#[test]
+fn hook_with_spoofed_username_env_reaches_the_normal_daemon_and_persists() {
+    let e = Env::new();
+    let p =
+        json!({"session_id":"s","cwd":"/p","hook_event_name":"SessionStart","source":"startup"});
+    // The hook inherits a spoofed user name; the endpoint identity must come from the OS, so
+    // it talks to the same daemon (and data dir) as a process with the real environment.
+    let mut c = e.cmd(&["hook", "claude-code", "SessionStart"]);
+    c.env("USERNAME", "SYSTEM")
+        .env("USER", "SYSTEM")
+        .env("LOGNAME", "SYSTEM");
+    let o = e.run_with(c, p.to_string().as_bytes());
+    assert_eq!(o.status.code(), Some(0));
+    let o = e.run_with(e.cmd(&["inspect"]), b"");
+    let s = String::from_utf8_lossy(&o.stdout).to_string();
+    assert!(s.contains("agent.started"), "event not persisted: {s}");
+    let o = e.run_with(e.cmd(&["doctor"]), b"");
+    let s = String::from_utf8_lossy(&o.stdout).to_string();
+    assert!(s.contains("identity") && s.contains("from os"), "{s}");
+}

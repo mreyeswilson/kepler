@@ -52,11 +52,13 @@ impl Endpoint {
         &self.name
     }
 
+    /// Where the identity comes from (shown by `kepler doctor`). Always the OS, never env.
+    pub const IDENTITY_SOURCE: &'static str = "os";
+
     /// Sanitized OS user name used to keep endpoints of different users apart.
     pub fn user_tag() -> String {
-        let raw = ["USERNAME", "USER", "LOGNAME"]
-            .iter()
-            .find_map(|k| std::env::var(k).ok().filter(|v| !v.is_empty()))
+        let raw = crate::identity::os_user_raw()
+            .filter(|v| !v.is_empty())
             .unwrap_or_else(|| "user".to_string());
         let clean: String = raw
             .chars()
@@ -108,6 +110,16 @@ mod tests {
         for bad in ["", "A", "a/b", "..", "a b", &"x".repeat(33), "a\\b"] {
             assert!(Endpoint::new(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn user_tag_ignores_env_username() {
+        let before = Endpoint::user_tag();
+        // Only this test touches these vars; the tag must not depend on them.
+        std::env::set_var("USERNAME", "SYSTEM");
+        std::env::set_var("USER", "SYSTEM");
+        std::env::set_var("LOGNAME", "SYSTEM");
+        assert_eq!(Endpoint::user_tag(), before);
     }
 
     #[test]
