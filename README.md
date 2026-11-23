@@ -139,7 +139,7 @@ claude mcp add kepler -- "C:\ruta\a\kepler.exe" mcp serve
 kepler hook claude-code --print-settings | Set-Clipboard    # PowerShell
 ```
 
-Pega la clave `"hooks"` en `.claudesettings.json` de un proyecto (recomendado para probar) o en `%USERPROFILE%.claudesettings.json`. En Linux/macOS el comando equivale pero no está probado. Kepler **no** edita tus settings. Si tu Claude Code no admite `args`, usa `--shell-form`.
+Pega la clave `"hooks"` en `.claude\settings.json` de un proyecto (recomendado para probar) o en `%USERPROFILE%\.claude\settings.json`. En Linux/macOS el comando equivale pero no está probado. Kepler **no** edita tus settings. Si tu Claude Code no admite `args`, usa `--shell-form`.
 
 | Hook | Efecto |
 |---|---|
