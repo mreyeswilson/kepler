@@ -1,0 +1,17 @@
+[package]
+name = "kepler-storage"
+description = "Kepler storage (internal crate, not published)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kepler-events.workspace = true
+kepler-policy.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true

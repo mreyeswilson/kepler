@@ -1,0 +1,80 @@
+name: Release npm (Pi adapter)
+
+# MANUAL, GUARDED publication of @kepler/pi. As committed this workflow CANNOT publish:
+# the `guard` job fails while adapters/pi/package.json has "private": true, license UNLICENSED,
+# version 0.0.0, no LICENSE file or no tests. Changing those conditions requires an explicit,
+# reviewed maintainer decision (AGENTS.md; see RELEASING.md).
+#
+# Publishing uses npm trusted publishing (OIDC): there is no NPM_TOKEN secret anywhere.
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_version:
+        description: 'Version in adapters/pi/package.json being released (e.g. 0.1.0)'
+        required: true
+        type: string
+      confirm:
+        description: 'Type exactly: publish <package name>@<version>'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-npm
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: guard (must pass before anything else)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24'
+      - name: Check release gates
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: node .github/scripts/check-npm-release-gates.mjs
+      - name: Typecheck and test
+        working-directory: adapters/pi
+        run: |
+          npm ci --ignore-scripts
+          npm run typecheck
+          npm test
+
+  publish:
+    name: publish to npm (manual approval)
+    needs: guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Configure required reviewers on this environment; the job waits for manual approval.
+    environment:
+      name: npm-release
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing + provenance (OIDC)
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '24' # ships npm >= 11.5.1, required for trusted publishing
+      - name: Install and test
+        working-directory: adapters/pi
+        run: |
+          npm ci --ignore-scripts
+          npm test
+      - name: Publish with provenance
+        working-directory: adapters/pi
+        run: npm publish --provenance --access public --ignore-scripts

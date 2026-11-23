@@ -1,0 +1,60 @@
+name: Vision worker check
+
+on:
+  push:
+    paths:
+      - 'workers/vision/**'
+      - '.github/workflows/vision-worker-check.yml'
+  pull_request:
+    paths:
+      - 'workers/vision/**'
+      - '.github/workflows/vision-worker-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vision-worker-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  worker-check:
+    name: typecheck, build, test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    defaults:
+      run:
+        shell: bash
+        working-directory: workers/vision
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: workers/vision/package-lock.json
+      # No browser is downloaded: installing the Playwright package does not fetch Chromium, and
+      # install scripts are disabled anyway.
+      - name: Install dependencies (lockfile, no scripts)
+        run: npm ci --ignore-scripts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Unit tests (node:test, fake browser driver)
+        run: npm test
+      - name: Validate manifest (private, no install scripts)
+        run: |
+          node --input-type=module -e "
+            import fs from 'node:fs';
+            const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            if (p.private !== true) throw Error('The worker must stay private');
+            if (p.scripts && (p.scripts.postinstall || p.scripts.preinstall || p.scripts.install)) throw Error('Install scripts are forbidden');
+          "

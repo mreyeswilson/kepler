@@ -51,3 +51,13 @@ Each capability has an implementation kind (native hook, MCP tool, CLI, unsuppor
 - Optional-module failure falls back without changing original input.
 - Security-sensitive preflight never becomes fail-open.
 - Events may be observed but not mutated when harness forbids mutation.
+
+## Implementation status (Delivery 0)
+The v1 envelope, the 11 payload kinds, size limits and capability negotiation are implemented in `crates/kepler-events` and tested against the shared fixtures in `fixtures/events/` (see `manifest.json`; TypeScript adapters should consume the same files). The wire protocol that carries events is specified in [ADR-0007](../decisions/0007-ipc-wire-protocol.md). The pipeline order is original -> Forge -> Sentinel (path audit) -> Memory -> Focus (advice only) -> Guardian; Vision and Orbit are CLI-driven and not part of the event pipeline. Verdicts carry an optional additive `advisories` array (`source`, `level` = `info|warn|recommend_stop`, `code`, `message`; at most 4, never blocking) next to the decision; adapters that do not understand it ignore it ([ADR-0014](../decisions/0014-focus-implementation.md)).
+
+## Implementation status (Delivery 1)
+Ordering steps 2-3 are implemented in the daemon: `PolicyEngine` runs registered modules in order (Forge, then Memory) and
+returns their output as separate `derived[]` items (`provenance` = `inferred` | `recalled`) next to an untouched original;
+Guardian (step 4) is Delivery 2: a budget stage after Memory (dedupe, token budget) plus the tool preflight and result scan ([ADR-0011](../decisions/0011-guardian-and-wire-additions.md)). `context.requested` is answered by Memory with scoped, budgeted recall; `memory.candidate`
+events are queued and consolidated on an `ok` `agent.settled`. Focus (steps 2, 5, 7) and Sentinel/Vision/Genesis are not
+implemented. See [ADR-0009](../decisions/0009-module-pipeline-and-forge.md) and [ADR-0010](../decisions/0010-memory-storage-and-ranking.md).

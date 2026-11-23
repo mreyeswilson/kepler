@@ -1,0 +1,15 @@
+[package]
+name = "kepler-forge"
+description = "Kepler Forge: deterministic input classifier and derived spec (internal crate, not published)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kepler-events.workspace = true
+kepler-policy.workspace = true

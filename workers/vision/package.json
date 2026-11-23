@@ -1,0 +1,23 @@
+{
+  "name": "@kepler/vision-worker",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Kepler Vision worker: on-demand Playwright inspection over a stdio JSON protocol (not published; not verified with a real browser)",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "playwright": "^1.50.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.8.3"
+  }
+}

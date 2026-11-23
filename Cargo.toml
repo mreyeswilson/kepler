@@ -1,0 +1,67 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/kepler-events",
+    "crates/kepler-policy",
+    "crates/kepler-storage",
+    "crates/kepler-forge",
+    "crates/kepler-focus",
+    "crates/kepler-git",
+    "crates/kepler-sentinel",
+    "crates/kepler-vision",
+    "crates/kepler-orbit",
+    "crates/kepler-memory",
+    "crates/kepler-mcp",
+    "crates/kepler-ipc",
+    "crates/kepler-core",
+    "crates/kepler-cli",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.89"
+# License is still pending (see README). UNLICENSED means "no rights granted".
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", default-features = false }
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "env"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
+kepler-events = { path = "crates/kepler-events" }
+kepler-policy = { path = "crates/kepler-policy" }
+kepler-storage = { path = "crates/kepler-storage" }
+kepler-forge = { path = "crates/kepler-forge" }
+kepler-focus = { path = "crates/kepler-focus" }
+kepler-git = { path = "crates/kepler-git" }
+kepler-sentinel = { path = "crates/kepler-sentinel" }
+kepler-vision = { path = "crates/kepler-vision" }
+kepler-orbit = { path = "crates/kepler-orbit" }
+kepler-memory = { path = "crates/kepler-memory" }
+kepler-mcp = { path = "crates/kepler-mcp" }
+kepler-ipc = { path = "crates/kepler-ipc" }
+kepler-core = { path = "crates/kepler-core" }
+
+[workspace.lints.rust]
+# `deny` (not `forbid`) so the single Windows named-pipe ACL module in
+# kepler-ipc can opt in locally with a documented `#[allow(unsafe_code)]`.
+unsafe_code = "deny"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+dbg_macro = "warn"
+todo = "warn"
+unimplemented = "warn"
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "unwind"

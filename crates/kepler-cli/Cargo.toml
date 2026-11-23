@@ -1,0 +1,30 @@
+[package]
+name = "kepler-cli"
+description = "Kepler command line interface (internal crate, not published)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "kepler"
+path = "src/main.rs"
+
+[dependencies]
+kepler-core.workspace = true
+kepler-events.workspace = true
+kepler-ipc.workspace = true
+kepler-storage.workspace = true
+kepler-memory.workspace = true
+kepler-mcp.workspace = true
+kepler-sentinel.workspace = true
+kepler-vision.workspace = true
+kepler-orbit.workspace = true
+kepler-policy.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "signal", "net", "io-util", "sync"] }

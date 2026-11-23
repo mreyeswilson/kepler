@@ -3,11 +3,11 @@
 ## Components
 1. Harness adapters (Pi first) normalize hooks and commands into versioned events.
 2. Kepler Core (Rust) hosts event dispatcher, **Focus execution-control engine**, policy engine, execution budgets, module registry and capability negotiation.
-3. Modules implement Forge, Memory, Guardian, Orbit, Sentinel, Vision and future Genesis.
+3. Modules implement Forge, Memory, Guardian, Focus (advisories), Sentinel and, as CLI-driven components, Vision and Orbit; Genesis is not implemented.
 4. SQLite persists memories, decisions, sessions and selective event metadata.
 5. MCP stdio exposes callable tools; CLI offers manual administration and diagnostics.
 6. Optional per-user daemon provides shared state; one-shot CLI is preferred for simple actions.
-7. Isolated workers are launched on demand (Playwright, external models, LSP).
+7. Isolated workers are launched on demand (Playwright, external models, LSP). Implemented: the Playwright worker (`workers/vision`, started only by `kepler vision`) and Orbit task processes in git worktrees.
 
 ```text
 Developer -> Coding Harness -> Native Adapter/Hook -> IPC
@@ -35,7 +35,7 @@ Focus tracks the immutable request, scope boundaries, evidence, progress, repeti
 Route on intent, changed files, trust level, available capabilities, latency budget and risk.
 Return passthrough if enrichment fails or budget expires. Never silently bypass a destructive-action permission check.
 
-## Performance targets, not measured results
+## Performance targets (measured values: see [PERFORMANCE.md](../development/PERFORMANCE.md))
 - Idle daemon RAM: target <30 MB excluding external workers.
 - In-process simple event dispatch: target <10 ms.
 - Warm small memory retrieval: target <100 ms.

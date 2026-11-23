@@ -1,6 +1,6 @@
 # Distribution: npm and Pi Coding Agent
 
-**Status:** planned; npm package scaffold committed but **no package published**. Native binaries and automatic Pi hooks are not implemented.
+**Status:** `adapters/pi` contains an experimental observe-only adapter (IPC client + `input` hook; mock-core tests only, **not verified with a real Pi session**). **No package is published**, the package stays `private: true`, and no native binaries are published yet. A guarded release workflow exists but cannot publish until the gates below are manually satisfied (see [RELEASING.md](../../RELEASING.md)).
 
 ## Why npm?
 Pi can install a package via `pi install npm:<package>`. npm is a distribution channel for the Pi-specific TypeScript adapter, **not** Kepler's Rust core implementation.
@@ -40,16 +40,19 @@ A Git installation from the **repository root** will only be advertised after th
 
 ## Publishing
 - Initial package is marked `private: true` to prevent accidental `npm publish`.
-- CI only validates JSON/pack manifest and produces an npm tarball for inspection. It **never publishes**.
+- Package CI validates the manifest, runs typecheck/tests and inspects the tarball (`npm pack --dry-run`). It **never publishes**.
 - After binary availability, integration tests, LICENSE selection and package scope verification, authorize the release.
 - Prefer npm trusted publishing (OIDC) and provenance when npm account/repo configuration supports it; avoid long-lived automation tokens.
 - Remove private flag and publish through a separately reviewed workflow with version/tag gate and explicit approval.
 - Version the adapter and core compatibility contract independently. A package must reject unsupported protocol versions safely.
+- `pi-package-check.yml` (CI) typechecks, builds, tests and validates the tarball contents (no publish).
+- `release-npm.yml` is a manual, guarded workflow (environment `npm-release` with manual approval, trusted publishing via OIDC, `npm publish --provenance`). Its `guard` job **fails by design** while `private: true`, `UNLICENSED`, version `0.0.0`, a missing `LICENSE`/tests or a non-matching `pi-v<version>` tag are in place, so it cannot publish today. See [RELEASING.md](../../RELEASING.md) for the manual steps (npm scope ownership, license, trusted publisher, environment reviewers, flipping `private`, version, tag).
+- Native binaries are released through `release-binaries.yml` (draft GitHub Release, `SHA256SUMS`, provenance attestations); it has not been run yet. The npm package never downloads or runs binaries.
 
 ## Release acceptance checklist
-- [ ] Rust Core/IPC exists and is tested.
+- [x] Rust Core/IPC exists and is tested (Delivery 0).
 - [ ] Pi event hook behavior is version-tested.
-- [ ] Missing Core path passes through without blocking users.
+- [x] Missing Core path passes through without blocking users (mock-core tests; not yet with real Pi).
 - [ ] Linux/macOS/Windows binary delivery and verification are designed.
 - [ ] Compatible package name/scope is owned.
 - [ ] License file exists.

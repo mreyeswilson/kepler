@@ -1,48 +1,76 @@
-name: Pi package scaffold
+name: Pi package check
 
 on:
   push:
     paths:
       - 'adapters/pi/**'
+      - 'fixtures/events/**'
       - '.github/workflows/pi-package-check.yml'
   pull_request:
     paths:
       - 'adapters/pi/**'
+      - 'fixtures/events/**'
       - '.github/workflows/pi-package-check.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: pi-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   package-check:
-    runs-on: ubuntu-latest
+    name: typecheck, test, pack (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
     defaults:
       run:
+        shell: bash
         working-directory: adapters/pi
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '22'
+          cache: npm
+          cache-dependency-path: adapters/pi/package-lock.json
+      - name: Install dev dependencies (lockfile, no scripts)
+        run: npm ci --ignore-scripts
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build (compile check, output not shipped)
+        run: npm run build
+      - name: Unit tests (node:test)
+        run: npm test
       - name: Validate Pi package manifest
         run: |
           node --input-type=module -e "
             import fs from 'node:fs';
             const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
             if (p.private !== true) throw Error('Publishing must remain disabled until release approval');
+            if (p.scripts && (p.scripts.postinstall || p.scripts.preinstall || p.scripts.install)) throw Error('Install scripts are forbidden');
             if (!Array.isArray(p.pi?.extensions) || !p.pi.extensions.includes('./extensions/kepler.ts')) throw Error('Missing Pi extension path');
             for (const path of p.pi.extensions) if (!fs.existsSync(path)) throw Error('Missing extension: ' + path);
+            if (p.dependencies && Object.keys(p.dependencies).length) throw Error('No runtime dependencies allowed');
           "
       - name: Validate npm tarball contents (no publish)
         run: |
-          npm pack --dry-run --json > /tmp/kepler-pi-pack.json
+          npm pack --dry-run --json --ignore-scripts > kepler-pi-pack.json
           node --input-type=module -e "
             import fs from 'node:fs';
-            const p=JSON.parse(fs.readFileSync('/tmp/kepler-pi-pack.json','utf8'))[0];
+            const p=JSON.parse(fs.readFileSync('kepler-pi-pack.json','utf8'))[0];
             const files=new Set(p.files.map(f=>f.path));
-            for (const name of ['package.json','extensions/kepler.ts','README.md']) {
+            for (const name of ['package.json','extensions/kepler.ts','src/client.ts','src/endpoint.ts','src/envelope.ts','src/observer.ts','README.md']) {
               if(!files.has(name)) throw Error('Missing package file '+name);
             }
+            for (const f of files) if (/^(test|dist|node_modules)\//.test(f)) throw Error('Unexpected file in tarball: '+f);
             console.log('Package content validated:', [...files].join(', '));
           "

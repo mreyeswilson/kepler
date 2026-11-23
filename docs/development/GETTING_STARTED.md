@@ -1,12 +1,12 @@
 # Getting started (planned workflow)
 
 ## Current status
-A Pi npm **package scaffold** now exists under `adapters/pi`, but no functional Kepler CLI, hook integration or Rust source exists yet. This document describes the intended development environment, not a working installer.
+The Rust workspace under `crates/` implements Deliveries 0-5 (events, policy, storage, IPC, daemon, Forge, Memory, Guardian, Focus, Sentinel, Vision manager, Orbit, MCP server, CLI) with tests, and `adapters/pi` implements the automatic hooks. Nothing is verified against a real Pi session, a real browser or non-Windows systems, and there is no installer or published binary. See the README status section, the [backlog](../roadmap/BACKLOG.md) and the [performance notes](PERFORMANCE.md).
 
 ## Prerequisites
-- Rust stable toolchain using rustup
+- Rust stable toolchain (>= 1.89, see ADR-0019) using rustup
 - Git and Cargo
-- Node.js for Pi extension and future Playwright worker
+- Node.js >= 22.18 for `adapters/pi` and `workers/vision`; Git (Sentinel and Orbit tests use real repositories)
 - Pi Coding Agent for initial adapter tests
 
 ## Bootstrap sequence
@@ -17,9 +17,13 @@ A Pi npm **package scaffold** now exists under `adapters/pi`, but no functional 
 5. Add privacy filters, SQLite and memory.
 6. Benchmark idle and event performance.
 
-## Pi package scaffold checks
+## Pi adapter checks
 
-From `adapters/pi`, run `npm pack --dry-run --json` to inspect the package contents. The manifest is intentionally marked private; do not publish it. See [distribution guide](../distribution/NPM_AND_PI.md).
+From `adapters/pi` (Node >= 22.18): `npm ci --ignore-scripts && npm run typecheck && npm run build && npm test`, then `npm pack --dry-run --json` to inspect the package contents. The manifest is intentionally marked private; do not publish it. See [distribution guide](../distribution/NPM_AND_PI.md).
+
+## Vision worker checks
+
+From `workers/vision`: `npm ci --ignore-scripts && npm run typecheck && npm run build && npm test`. No browser is downloaded by these steps; a real-browser run needs `npx playwright install chromium` and `KEPLER_VISION_WORKER` (see `workers/vision/README.md`).
 
 ## Development quality
 - Run `cargo fmt --check`, `cargo clippy --all-targets --all-features`, `cargo test --workspace` when project code exists.

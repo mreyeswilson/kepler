@@ -30,7 +30,7 @@ Investigate `input`, `before_agent_start`, `context`, `tool_call`, `tool_result`
 For each version, test: installation, event delivery, input passthrough, context injection, tool preflight (if supported), session recovery, uninstall and missing-daemon fallback.
 
 ## Pi distribution
-See [npm and Pi distribution](../distribution/NPM_AND_PI.md). The initial `adapters/pi` package is a **non-functional scaffold** and must not be marketed as an operational extension. Public npm publication stays disabled until all release gates pass.
+See [npm and Pi distribution](../distribution/NPM_AND_PI.md). `adapters/pi` is an **experimental, observe-only** adapter (forwards `input` as `input.received` over IPC; never transforms or blocks) tested only against a mock core, **not verified with a real Pi session**. It must not be marketed as an operational extension. Public npm publication stays disabled until all release gates pass.
 
 ## Desktop clients and discovery
 
