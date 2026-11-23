@@ -25,8 +25,8 @@ fn corpus_accuracy_and_invariants() {
         .lines()
         .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
     {
-        let (exp, text) = line.split_once('\t').expect("tab");
-        let text = text.replace("\\n", "\n");
+        let (exp, rest) = line.split_once('\t').expect("tab");
+        let text = rest.split('\t').next().unwrap_or("").replace("\\n", "\n");
         let a = analyze(&text);
         // Invariant 1: the original is preserved byte for byte.
         assert_eq!(a.original(), text);
