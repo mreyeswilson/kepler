@@ -25,7 +25,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// Environment guard set on the child: `kepler hook` exits immediately when it sees it.
 pub const CHILD_GUARD: &str = "KEPLER_FORGE_CHILD";
 pub const DEFAULT_MODEL: &str = "haiku";
-pub const DEFAULT_TIMEOUT_MS: u64 = 6000;
+pub const DEFAULT_TIMEOUT_MS: u64 = 10_000;
 pub const DEFAULT_BREAKER_MINUTES: u64 = 10;
 /// Consecutive failures that open the circuit breaker.
 pub const BREAKER_THRESHOLD: u64 = 2;
@@ -132,6 +132,8 @@ impl<'a> ClaudeCliClassifier<'a> {
             "json",
             "--tools",
             "",
+            "--effort",
+            "low",
             "--no-session-persistence",
             "--disable-slash-commands",
             "--strict-mcp-config",
@@ -203,6 +205,9 @@ fn run_child(cfg: &ModelConfig, stdin_text: &str) -> Result<Vec<u8>, ClassifyErr
     cmd.args(ClaudeCliClassifier::argv(&cfg.model))
         .env(CHILD_GUARD, "1")
         .env("KEPLER_FORGE", "off")
+        // Skip model-config/telemetry round trips: measured ~2.5 s faster per call (ADR-0026).
+        .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+        .env("DISABLE_TELEMETRY", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
@@ -860,7 +865,10 @@ mod tests {
     fn argv_has_no_tools_no_session_no_hooks_and_no_user_text() {
         let a = ClaudeCliClassifier::argv("haiku");
         let j = a.join(" ");
-        assert!(j.contains("--tools  --no-session-persistence"), "{j}");
+        assert!(
+            j.contains("--tools  --effort low --no-session-persistence"),
+            "{j}"
+        );
         assert!(j.contains("disableAllHooks"));
         assert!(j.contains("--output-format json"));
         assert!(j.contains("--model haiku"));

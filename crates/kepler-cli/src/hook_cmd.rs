@@ -169,6 +169,16 @@ fn process(
     no_autostart: bool,
     endpoint: &Endpoint,
 ) -> Option<EmitOutcome> {
+    if ev == HookEvent::UserPromptSubmit
+        && input
+            .get("prompt")
+            .and_then(Value::as_str)
+            .is_some_and(is_not_a_user_prompt)
+    {
+        return Some(EmitOutcome::Passthrough {
+            reason: "not_user_prompt".into(),
+        });
+    }
     let env = build_envelope(ev, input, &new_ctx())?;
     let total = timeout_from_env();
     // Guardian preflight is a security boundary: keep a copy to evaluate locally if the daemon
@@ -192,6 +202,20 @@ fn process(
         return Some(with_model_note(input, outcome));
     }
     Some(outcome)
+}
+
+/// Text that arrives through the prompt channel but was not typed by the user (agent reports,
+/// system notifications, cross-session messages). Never classified, enriched or sent to a model.
+pub fn is_not_a_user_prompt(text: &str) -> bool {
+    let t = text.trim_start();
+    [
+        "[Subagent hand-back]",
+        "<task-notification",
+        "<system-reminder",
+        "<cross-session-message",
+    ]
+    .iter()
+    .any(|m| t.starts_with(m))
 }
 
 /// Model-assisted intent (ADR-0026). Runs here, outside the policy engine's 50 ms per-module
@@ -304,9 +328,9 @@ pub fn rfc3339_utc(secs: u64, millis: u32) -> String {
 }
 
 /// (event, matcher, timeout seconds). Short timeouts: Kepler's own budget is 2 s. The prompt hook
-/// also covers the optional model assist (default 6 s, ADR-0026): 2 s core + 6 s model + margin.
+/// also covers the optional model assist (default 10 s, ADR-0026): 2 s core + 10 s model + margin.
 pub const HOOK_TABLE: [(&str, Option<&str>, u32); 6] = [
-    ("UserPromptSubmit", None, 10),
+    ("UserPromptSubmit", None, 14),
     (
         "PreToolUse",
         Some("Bash|Write|Edit|MultiEdit|NotebookEdit|Read"),
@@ -367,6 +391,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn non_user_text_is_passthrough_without_context() {
+        for t in [
+            "[Subagent hand-back] done: fix the bug in the login flow please",
+            "  <task-notification>fix the failing build</task-notification>",
+            "<system-reminder>add a feature</system-reminder>",
+            "<cross-session-message from=x>refactor everything</cross-session-message>",
+        ] {
+            assert!(is_not_a_user_prompt(t), "{t}");
+            let input = json!({"prompt": t, "session_id": "s", "cwd": "/p"});
+            let o = process(
+                HookEvent::UserPromptSubmit,
+                &input,
+                true,
+                &Endpoint::from_env(),
+            );
+            assert_eq!(
+                o,
+                Some(EmitOutcome::Passthrough {
+                    reason: "not_user_prompt".into()
+                })
+            );
+        }
+        assert!(!is_not_a_user_prompt("fix the bug in the login flow"));
+    }
+
+    #[test]
     fn rfc3339_known_values() {
         assert_eq!(rfc3339_utc(0, 0), "1970-01-01T00:00:00.000Z");
         assert_eq!(rfc3339_utc(1_709_164_800, 7), "2024-02-29T00:00:00.007Z");
@@ -384,7 +434,7 @@ mod tests {
             assert_eq!(h["type"], "command");
             assert_eq!(h["command"], "C:/Tools/kepler.exe");
             assert_eq!(h["args"], json!(["hook", "claude-code", event]));
-            assert!(h["timeout"].as_u64().unwrap() <= 10);
+            assert!(h["timeout"].as_u64().unwrap() <= 14);
         }
         let s = settings_block("/opt/it's/kepler", true);
         let c = s["hooks"]["Stop"][0]["hooks"][0]["command"]
