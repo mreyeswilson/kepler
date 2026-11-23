@@ -18,9 +18,10 @@
 #   KEPLER_REPO         GitHub repository owner/name (default: mreyeswilson/kepler)
 #   KEPLER_BASE_URL     override of the release download base URL (https:// or file://).
 #                       Intended for tests and mirrors; checksums are still verified.
-#   KEPLER_GITHUB_TOKEN token for private repos (also GH_TOKEN, GITHUB_TOKEN, or `gh auth token`).
-#                       With a token, assets come from the GitHub API (api.github.com, HTTPS only; the
-#                       token is never printed or stored). Ignored when KEPLER_BASE_URL is set.
+#   KEPLER_GITHUB_TOKEN token for private repos. Downloads are anonymous first; the token is used when this is set,
+#                       or as a fallback when the anonymous download is refused (then also GH_TOKEN, GITHUB_TOKEN or
+#                       `gh auth token`). With a token, assets come from the GitHub API (api.github.com, HTTPS only; the
+#                       token is never printed or stored).
 #   KEPLER_API_URL      API base override (https://api.github.com or file://; tests only)
 #   KEPLER_OS/KEPLER_ARCH  override `uname -s` / `uname -m` (testing only)
 
@@ -64,6 +65,27 @@ fetch() { # fetch URL DEST
     file://*)
       have curl || die "curl is required for file:// base URLs"
       curl -fsSL -o "$2" "$1"
+      ;;
+    *) die "refusing non-HTTPS URL: $1" ;;
+  esac
+}
+
+# fetch_status URL DEST : like fetch, but sets FETCH_CODE (HTTP status, "file" for a failed file://, 000 if unknown)
+fetch_status() {
+  FETCH_CODE=000
+  case "$1" in
+    https://*)
+      if have curl; then
+        FETCH_CODE="$(curl -sSL --proto '=https' --tlsv1.2 --retry 2 -o "$2" -w '%{http_code}' "$1" 2>/dev/null || true)"
+        case "$FETCH_CODE" in 2??) return 0 ;; esac
+        return 1
+      fi
+      fetch "$1" "$2" 2>/dev/null
+      ;;
+    file://*)
+      if fetch "$1" "$2" 2>/dev/null; then return 0; fi
+      FETCH_CODE=file
+      return 1
       ;;
     *) die "refusing non-HTTPS URL: $1" ;;
   esac
@@ -216,8 +238,24 @@ install_main() {
   trap 'rm -rf "$tmp"' EXIT INT TERM HUP
 
   say "Detected target: $TARGET"
-  if [ -z "${KEPLER_BASE_URL:-}" ]; then resolve_token; fi
-  if [ -n "$TOKEN" ]; then
+  # Anonymous download first. A token is used only when KEPLER_GITHUB_TOKEN is set explicitly (and no
+  # KEPLER_BASE_URL mirror is given), or as a fallback when the anonymous download is refused (401/403/404).
+  MODE=public
+  if [ -z "${KEPLER_BASE_URL:-}" ] && [ -n "${KEPLER_GITHUB_TOKEN:-}" ]; then resolve_token; MODE=api; fi
+  if [ "$MODE" = public ]; then
+    say "Downloading SHA256SUMS from $base"
+    if ! fetch_status "$base/SHA256SUMS" "$tmp/SHA256SUMS"; then
+      case "$FETCH_CODE" in
+        401 | 403 | 404 | file) ;;
+        *) die "could not download SHA256SUMS (does the release exist?)" ;;
+      esac
+      resolve_token
+      [ -n "$TOKEN" ] || die "could not download SHA256SUMS (the release does not exist or the repository is private); set KEPLER_GITHUB_TOKEN to use the GitHub API"
+      say "Anonymous download was refused; retrying with a GitHub token through the API"
+      MODE=api
+    fi
+  fi
+  if [ "$MODE" = api ]; then
     case "$API" in
       https://api.github.com | file://*) API="${API%/}" ;;
       *) die "KEPLER_API_URL must be https://api.github.com (or file:// for tests)" ;;
@@ -225,10 +263,8 @@ install_main() {
     if [ -n "$version" ]; then rel_url="$API/repos/${REPO}/releases/tags/v${version}"; else rel_url="$API/repos/${REPO}/releases/latest"; fi
     say "Using a GitHub token: downloading through the GitHub API ($API)"
     api_fetch "$rel_url" "$tmp/release.json" "application/vnd.github+json" || die "could not read the release metadata (does the release exist, and can the token read the repo?)"
-  else
-    say "Downloading SHA256SUMS from $base"
+    get_asset SHA256SUMS "$tmp/SHA256SUMS" || die "could not download SHA256SUMS (does the release exist?)"
   fi
-  get_asset SHA256SUMS "$tmp/SHA256SUMS" || die "could not download SHA256SUMS (does the release exist?)"
 
   # Lines look like "<sha256>  kepler-<version>-<target>.tar.gz"
   if [ -n "$version" ]; then

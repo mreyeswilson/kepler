@@ -76,7 +76,7 @@ $env:KEPLER_INSTALL_DIR = "$env:TEMP\kepler-prueba"   # opcional; no toca el PAT
 KEPLER_GITHUB_TOKEN="$(gh auth token)" sh install.sh
 ```
 
-Sin token el comportamiento es el de siempre (descarga pública).
+La descarga pública anónima se intenta siempre primero; el token solo se usa si defines `KEPLER_GITHUB_TOKEN` o como reintento cuando la descarga anónima es rechazada (401/403/404), en cuyo caso también se buscan `GH_TOKEN`, `GITHUB_TOKEN` y `gh auth token`.
 
 ### Desde el código fuente
 

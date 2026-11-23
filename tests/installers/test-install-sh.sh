@@ -6,6 +6,9 @@ set -u
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/bin"; printf "#!/bin/sh
+exit 1
+" > "$work/bin/gh"; chmod +x "$work/bin/gh"; PATH="$work/bin:$PATH"
 pass=0; fail=0
 ok() { pass=$((pass + 1)); echo "ok   - $1"; }
 ko() { fail=$((fail + 1)); echo "FAIL - $1"; }
@@ -100,9 +103,6 @@ if [ $rc -eq 0 ] && [ -x "$inst/kepler" ] && echo "$out" | grep -q "GitHub API" 
 echo "$out" | grep -q "ghp_TESTTOKEN123" && ko "token is printed" || ok "token never printed"
 inst="$work/i9b"; out="$(runtok --version 9.9.9 2>&1)"; rc=$?
 [ $rc -eq 0 ] && [ -x "$inst/kepler" ] && ok "token: --version via API" || ko "token --version: $out"
-# GH_TOKEN is also accepted
-inst="$work/i9c"; out="$(env -u KEPLER_BASE_URL -u KEPLER_GITHUB_TOKEN GH_TOKEN="ghp_OTHER" KEPLER_API_URL="$apiurl" KEPLER_INSTALL_DIR="$inst" KEPLER_OS=Linux KEPLER_ARCH=x86_64 sh "$root/install.sh" 2>&1)"; rc=$?
-[ $rc -eq 0 ] && [ -x "$inst/kepler" ] && ok "token: GH_TOKEN accepted" || ko "GH_TOKEN: $out"
 # checksum still mandatory in token mode
 apibad="$work/apibad"; badrel="$work/badrel"; cp -r "$rel" "$badrel"; echo junk >> "$badrel/kepler-9.9.9-x86_64-unknown-linux-gnu.tar.gz"
 mkapi "$apibad" "$badrel"; inst="$work/i9d"
@@ -119,6 +119,18 @@ out="$(env -u KEPLER_BASE_URL KEPLER_API_URL="https://evil.invalid" KEPLER_GITHU
 # KEPLER_BASE_URL set => token ignored, public path
 inst="$work/i9g"; out="$(KEPLER_GITHUB_TOKEN="ghp_T" run 2>&1)"; rc=$?
 [ $rc -eq 0 ] && ! echo "$out" | grep -q "GitHub API" && ok "token ignored with KEPLER_BASE_URL" || ko "base url + token: $out"
+
+# 10. anonymous first: a token in the environment must not push a public release through the API
+inst="$work/i10"; out="$(GH_TOKEN="ghp_T" KEPLER_API_URL="https://api.invalid" run 2>&1)"; rc=$?
+[ $rc -eq 0 ] && [ -x "$inst/kepler" ] && ! echo "$out" | grep -q "GitHub API" && ok "public release + GH_TOKEN installs anonymously" || ko "anonymous first: $out"
+# 11. fallback: anonymous download refused (empty mirror) + GH_TOKEN => retries through the API
+empty="$work/empty"; mkdir -p "$empty"; inst="$work/i11"
+out="$(KEPLER_BASE_URL="$(fileurl "$empty")" GH_TOKEN="ghp_T" KEPLER_API_URL="$apiurl" KEPLER_INSTALL_DIR="$inst" KEPLER_OS=Linux KEPLER_ARCH=x86_64 sh "$root/install.sh" 2>&1)"; rc=$?
+[ $rc -eq 0 ] && [ -x "$inst/kepler" ] && echo "$out" | grep -q "retrying with a GitHub token" && ok "refused anonymous download falls back to the token" || ko "fallback: rc=$rc $out"
+# 12. refused and no token => clear error (gh hidden from PATH)
+inst="$work/i12"; nogh="$work/nogh"; mkdir -p "$nogh"
+out="$(env -u GH_TOKEN -u GITHUB_TOKEN -u KEPLER_GITHUB_TOKEN KEPLER_BASE_URL="$(fileurl "$empty")" KEPLER_INSTALL_DIR="$inst" KEPLER_OS=Linux KEPLER_ARCH=x86_64 sh -c 'gh() { return 1; }; command() { [ "$2" = gh ] && return 1; builtin command "$@"; }; . "$0"' "$root/install.sh" 2>&1)"; rc=$?
+[ $rc -ne 0 ] && [ ! -e "$inst/kepler" ] && ok "refused anonymous download without token fails" || ko "no token: $out"
 
 echo "passed=$pass failed=$fail"
 [ "$fail" -eq 0 ]
