@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/). License: MIT. Crates st
 
 ## [Unreleased]
 
+## [0.0.3]
+
+### Fixed
+- IPC endpoint identity now comes from the OS (GetUserNameW on Windows, getuid on Unix), not from the `USERNAME`, `USER` or `LOGNAME` environment variables. A terminal that inherited `USERNAME=SYSTEM` used to reach a second daemon (`kepler-SYSTEM-daemon`) that answered but did not persist events.
+- The daemon takes an exclusive `daemon.lock` in the data directory; a second daemon on the same `KEPLER_HOME` exits with `storage unavailable: another kepler daemon owns <dir>` instead of running silently without persistence.
+- `kepler doctor` shows the identity used and its source (`os`).
+
 ## [0.0.2]
 
 First tagged release. Integrates `feat/functional-core`, `feat/functional-modules` and `feat/claude-code-adapter`

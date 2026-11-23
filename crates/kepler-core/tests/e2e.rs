@@ -465,3 +465,15 @@ fn in_process_evaluation_matches_daemon_policy() {
     // an Envelope parsed from the same JSON agrees
     assert!(Envelope::from_value(input("e1", "s", "ok")).is_ok());
 }
+
+#[tokio::test]
+async fn second_daemon_on_same_data_dir_fails_with_clear_message() {
+    let r = start(true, None);
+    let mut cfg = DaemonConfig::new(endpoint());
+    cfg.db_path = r.db.clone();
+    let err = Daemon::start(cfg).err().unwrap();
+    assert!(matches!(err, kepler_core::DaemonError::StorageLocked(_)));
+    assert!(err
+        .to_string()
+        .contains("storage unavailable: another kepler daemon owns"));
+}

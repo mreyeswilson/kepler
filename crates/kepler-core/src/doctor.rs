@@ -101,6 +101,7 @@ impl DoctorReport {
             },
             "ipc": {
                 "endpoint": self.endpoint,
+                "identity": {"user": Endpoint::user_tag(), "source": Endpoint::IDENTITY_SOURCE},
                 "daemon": match &self.daemon {
                     DaemonProbe::Running { server_version } => json!({"running": true, "version": server_version}),
                     DaemonProbe::NotRunning(why) => json!({"running": false, "detail": why}),
@@ -159,6 +160,15 @@ impl DoctorReport {
         line(&mut s, "  llm/network calls", "none".into());
         s.push_str("\nIPC\n");
         line(&mut s, "  endpoint", self.endpoint.clone());
+        line(
+            &mut s,
+            "  identity",
+            format!(
+                "{} (from {})",
+                Endpoint::user_tag(),
+                Endpoint::IDENTITY_SOURCE
+            ),
+        );
         match &self.daemon {
             DaemonProbe::Running { server_version } => {
                 line(&mut s, "  daemon", format!("running (v{server_version})"))
