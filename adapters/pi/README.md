@@ -77,6 +77,8 @@ Release gates and the guarded manual procedure are in `docs/distribution/NPM_AND
 | `agent_start` / `agent_settled` | `agent.started` / `agent.settled` | observe only; `aborted` maps to `cancelled`, otherwise `ok` (drives Memory consolidation) |
 | `session_shutdown` | `session.closed` | observe, then close the connection |
 
+The `advisories` array that Focus/Sentinel add to verdicts (ADR-0014) is currently **ignored** by this adapter: nothing is displayed or acted on.
+
 Sends are serialized (one request in flight, queue of 8, 700 ms verdict timeout). The adapter never starts the core.
 
 **Verification status.** 45 `node:test` tests (mock core and fake sender), plus one manual run of these hooks against the real Rust

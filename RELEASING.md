@@ -58,4 +58,4 @@ checklist in `docs/distribution/NPM_AND_PI.md`.
 - Actions in the new workflows are pinned to commit SHAs (version in a trailing comment); Dependabot (`.github/dependabot.yml`) proposes updates.
 - Default token permissions are `contents: read`; `contents: write`, `id-token: write` and `attestations: write` exist only in the release job, `id-token: write` only in the npm publish job.
 - `security.yml` runs `cargo deny check` (see `deny.toml`) and `npm audit`.
-- `ci.yml` still references floating action tags; pin it the same way in a follow-up.
+- `ci.yml` pins its actions to commit SHAs as well (checked: no workflow uses a floating tag).

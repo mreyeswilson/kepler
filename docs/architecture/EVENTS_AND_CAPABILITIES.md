@@ -53,7 +53,7 @@ Each capability has an implementation kind (native hook, MCP tool, CLI, unsuppor
 - Events may be observed but not mutated when harness forbids mutation.
 
 ## Implementation status (Delivery 0)
-The v1 envelope, the 11 payload kinds, size limits and capability negotiation are implemented in `crates/kepler-events` and tested against the shared fixtures in `fixtures/events/` (see `manifest.json`; TypeScript adapters should consume the same files). The wire protocol that carries events is specified in [ADR-0007](../decisions/0007-ipc-wire-protocol.md). Ordering steps 2-7 above (Forge, Memory, Guardian, Sentinel, Vision) are not implemented; the core currently classifies deterministically and returns passthrough or a tool-preflight verdict.
+The v1 envelope, the 11 payload kinds, size limits and capability negotiation are implemented in `crates/kepler-events` and tested against the shared fixtures in `fixtures/events/` (see `manifest.json`; TypeScript adapters should consume the same files). The wire protocol that carries events is specified in [ADR-0007](../decisions/0007-ipc-wire-protocol.md). The pipeline order is original -> Forge -> Sentinel (path audit) -> Memory -> Focus (advice only) -> Guardian; Vision and Orbit are CLI-driven and not part of the event pipeline. Verdicts carry an optional additive `advisories` array (`source`, `level` = `info|warn|recommend_stop`, `code`, `message`; at most 4, never blocking) next to the decision; adapters that do not understand it ignore it ([ADR-0014](../decisions/0014-focus-implementation.md)).
 
 ## Implementation status (Delivery 1)
 Ordering steps 2-3 are implemented in the daemon: `PolicyEngine` runs registered modules in order (Forge, then Memory) and

@@ -1,4 +1,4 @@
-# Performance notes (Deliveries 0-2)
+# Performance notes (Deliveries 0-5)
 
 ## Measured results (single machine, one run each; not a benchmark suite)
 Environment: Windows 11 (10.0.26200), Intel Core i5-7300U @ 2.60 GHz, `cargo build --release` (thin LTO, stripped), rustc 1.98.0,
@@ -38,6 +38,27 @@ after warm-up). Not measured: CPU/RSS of the Pi adapter, Node startup, end-to-en
 Reproduce: `cargo build --release -p kepler-cli && cargo run --release -p kepler-core --example bench`; for RSS start
 `target/release/kepler daemon --idle-timeout-secs 0` with `KEPLER_HOME` and `KEPLER_IPC_NAME` pointing at scratch values and sample
 the process working set (Task Manager or `Get-Process`).
+
+## Re-measurement after Deliveries 3-5 (same machine, 2026-11-23, release build, one session of runs)
+Added since the tables above: Focus (advice on every event), Sentinel (path rules on `files.changed`), rusqlite 0.41 / SQLite 3.54
+([ADR-0019](../decisions/0019-rusqlite-upgrade-and-msrv.md)), and the Vision/Orbit CLI code (not in the daemon's event path).
+
+| Measure | Before (Deliveries 0-2) | After |
+|---|---|---|
+| Binary size `kepler.exe` | 3.81 MB | 4.92 MB (more commands, newer bundled SQLite) |
+| Idle working set, 10 s after start | 7.6 MB | 8.0 MB; unchanged (8.0 MB) after 100 `files.changed` events with persisted findings |
+| Threads at idle | 5 | 5 |
+| In-process trivial input, p50 | 0.4 us | 0.6 us with Focus off, 0.8 us with Focus on (Focus adds a mutex, a hash-map lookup and one string clone per event: ~0.2 us) |
+| In-process specific input (Forge + Memory FTS over 500 rows), p50 | 481 us | 820-950 us |
+
+Reading and caveats: Focus and Sentinel together added roughly 0-120 us to the specific-input path, which is within the run-to-run
+noise of this machine (alternating runs: 820-950 us). The jump from 481 us to ~850 us is **not** caused by them: rebuilding the same
+benchmark with the old `rusqlite` 0.32 and both modules disabled gave 350-550 us, so the newer bundled SQLite makes the FTS5 retrieval
+roughly 1.5-2x slower in this micro-benchmark (still far below the 100 ms target; cause not investigated further). Each figure is
+3 alternating runs at most, not a benchmark suite; Linux/macOS and a cold cache were not measured. Not measured at all: Sentinel diff
+audit time on large diffs, `kepler vision` (no real browser), Orbit overhead (dominated by `git worktree` and the task itself), Focus
+false-positive rates. `cargo run --release -p kepler-core --example bench` now accepts `BENCH_NO_FOCUS=1` and `BENCH_NO_SENTINEL=1`
+to isolate those modules.
 
 ## Design choices that bound cost (and anticipated costs not yet measured)
 Everything below the measured tables above is design rationale.

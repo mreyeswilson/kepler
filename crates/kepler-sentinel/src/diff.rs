@@ -7,7 +7,7 @@ pub const MAX_LINE_CHARS: usize = 400;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FileDiff {
     pub path: String,
-    /// (line number in the new file, text clipped to [`MAX_LINE_CHARS`]).
+    /// (line number in the new file, text clipped to MAX_LINE_CHARS (400)).
     pub added: Vec<(u32, String)>,
     pub removed: Vec<String>,
 }
@@ -31,7 +31,7 @@ fn hunk_start(line: &str) -> Option<u32> {
 }
 
 /// Files appear in diff order; deleted files and binary files yield no lines. Input beyond
-/// [`MAX_DIFF_LINES`] lines or [`MAX_FILES`] files is ignored.
+/// MAX_DIFF_LINES (50 000) lines or MAX_FILES (500) files is ignored.
 pub fn parse_unified(text: &str) -> Vec<FileDiff> {
     let mut files: Vec<FileDiff> = Vec::new();
     let mut cur: Option<FileDiff> = None;

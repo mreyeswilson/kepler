@@ -39,10 +39,11 @@
 | KPL-034 | P2 | Genesis UI design specification | Design context, tokens, layouts, wireframes/mockups and variants with provenance |
 | KPL-035 | P2 | Genesis preview and code-generation workflow | Approval, design-to-component mapping, project conventions and supported stacks |
 | KPL-036 | P2 | Genesis Vision/Sentinel feedback | Render on demand, compare/validate and bound correction loops |
+| KPL-037 | P2 | Orbit DAG scheduler | Cycle detection, bounded concurrency, git worktree isolation, approvals for destructive actions, tests on temporary repositories |
 
 Each issue should include owner (when assigned), dependencies, security implications, tests and performance targets. IDs are planning identifiers, not existing GitHub issues.
 
-## Status (Delivery 0, Rust core on branch `feat/rust-core-d0`)
+## Status (Rust core on branch `feat/rust-core-d0`, Deliveries 0-5)
 
 Status is only "done" when code **and** tests exist. Measured performance is not claimed (see
 [performance notes](../development/PERFORMANCE.md)).
@@ -64,4 +65,16 @@ Status is only "done" when code **and** tests exist. Measured performance is not
 | KPL-013 | Done | Guardian: fail-closed preflight with expanded denylist, user rules file (tighten-only), `require_approval`/`deny` verdicts (approval itself is the harness UI), secret detection in tool results (`redact` verdict), context budget stage, estimated-vs-measured token labels ([ADR-0011](../decisions/0011-guardian-and-wire-additions.md)). String matching is not a sandbox; no real tokenizer. |
 | KPL-014 | Partial | `kepler mcp serve` (ADR-0012): minimal in-tree JSON-RPC, tools `kepler_doctor`/`kepler_inspect`/`kepler_memory_search`, all read-only and bounded; tested with a scripted client over a real process. **Not tested with a third-party MCP client.** No interception is claimed or possible through MCP. |
 | KPL-019 | Partial | `adapters/pi` hooks: input, before_agent_start (labeled system-prompt addition), context (estimate only), tool_call (block on deny/unapproved approval), tool_result (redact), agent_start/agent_settled, session_shutdown; 45 node:test tests and one manual run against the real daemon. **Not verified inside a real Pi session**; package still `private: true` ([ADR-0013](../decisions/0013-pi-automatic-hooks.md)). |
-| KPL-015, KPL-016, KPL-018, KPL-020 | Not started | KPL-017 scaffold existed before; publishing stays disabled. | Except KPL-017 (scaffold existed before this delivery); publishing stays disabled. |
+| KPL-015 | Done (shallow) | `kepler-sentinel` + `kepler-git`: path rules in the daemon on `files.changed`, added-line rules over `git diff` from `kepler sentinel audit`, findings tied to file/line/redacted evidence in `audit_findings` (migration v3), `confirmed` vs `suspected`, bounded ([ADR-0015](../decisions/0015-sentinel-and-findings.md)). **Not implemented:** integration with the project's own lint/test runs, AST/Tree-sitter analysis. Rules are simple substrings, unmeasured false-positive rate. |
+| KPL-016 | Partial | `kepler-vision` (lazy manager, timeouts+kill, capped output, minimal env, localhost allowlist, fake-worker tests) and the private `workers/vision` Playwright worker (stdio JSON, 15 node:test tests, real-process hello) ([ADR-0016](../decisions/0016-vision-worker.md)). **The worker has never run against a real Chromium** (none was downloaded); the DOM probe, screenshots and request interception are unverified in a browser. Not wired to the daemon or hooks. |
+| KPL-018, KPL-020 | Not started | Packaging and the npm pipeline stay blocked (license, real-harness verification). KPL-017 scaffold existed before; publishing stays disabled. |
+| KPL-026 | Partial | Focus scope lock: files named in the user input vs changed files, new input restarts the task. The original request is not stored (only file names); explicit acceptance criteria are not tracked ([ADR-0014](../decisions/0014-focus-implementation.md)). |
+| KPL-027 | Done (uncalibrated) | Loop detector: identical calls, repeated failures, failure streaks, oscillating edits; a retry after a change is legitimate. Thresholds are hypotheses. |
+| KPL-028 | Partial | Adaptive budget on tool calls and elapsed time: warns while files change, `recommend_stop` only when stalled. Only advisories: no cancellation anywhere. Tokens/CPU/RAM are not part of the budget. |
+| KPL-029 | Partial | Evidence/completion advisories report *observed* verification after the last change or "unknown". Keyword heuristic; no observed/inferred/unknown labelling of arbitrary agent claims. |
+| KPL-030 | Partial | Minimal-change guard: dependency manifests and large change sets. No refactor-proportion analysis, pre-existing user edits are not distinguished. |
+| KPL-031 | Partial | Completion gate: `completion.verified` / `evidence.unverified_completion` / `completion.recommend_stop`. Acceptance criteria are never evaluated. |
+| KPL-032 | Not started | The with/without-Kepler benchmark suite was not run; Focus overhead and false-positive rates are unmeasured. |
+| KPL-033 | Partial | By design Focus only warns (`advisories` on the verdict); blocking stays with the Guardian preflight. The Pi adapter does not display advisories yet. |
+| KPL-034..036 | Not started | Genesis is design only ([ADR-0018](../decisions/0018-genesis-deferred-design.md)); no UI exists. |
+| KPL-037 | Done (CLI) | Orbit: `kepler-orbit`, `tasks`/`task_dependencies`/`orbit_runs` (migration v4), plan validation with cycle detection, bounded concurrency, git worktree per task with dependency merges and conflict/overlap reporting, approval checkpoints for destructive commands, process-tree kill on timeout/cancel, `kepler orbit ...` ([ADR-0017](../decisions/0017-orbit-dag-scheduler.md)). No agent spawning, no OS resource limits, Unix kill path not executed on Unix. |

@@ -20,7 +20,7 @@ members = [
 [workspace.package]
 version = "0.0.1"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.89"
 # License is still pending (see README). UNLICENSED means "no rights granted".
 license = "UNLICENSED"
 publish = false
@@ -30,7 +30,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", default-features = false }
 clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "env"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 kepler-events = { path = "crates/kepler-events" }
 kepler-policy = { path = "crates/kepler-policy" }
 kepler-storage = { path = "crates/kepler-storage" }

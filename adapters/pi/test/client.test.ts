@@ -223,3 +223,28 @@ test("only one request in flight: concurrent call returns busy", async () => {
     c.close();
   });
 });
+
+test("a verdict carrying the additive `advisories` array (ADR-0014) is accepted and its decision preserved", async () => {
+  const handler: Parameters<typeof startMock>[0] = (line, c) => {
+    const f = JSON.parse(line) as { type: string; request_id?: string; event?: { id: string } };
+    if (f.type === "hello") c.send(HELLO_ACK);
+    else if (f.type === "event") {
+      c.send({
+        type: "decision",
+        request_id: f.request_id,
+        event_id: f.event?.id,
+        decision: {
+          action: "passthrough",
+          reason: "observe_only",
+          advisories: [{ source: "focus", level: "warn", code: "loop.repeated_call", message: "x" }],
+        },
+      });
+    }
+  };
+  await withMock(handler, async (m) => {
+    const c = new KeplerClient({ endpoint: m.endpoint, clientVersion: "9.9.9", ...fast });
+    const r = await c.sendEvent(EVENT);
+    assert.equal(r.ok, true);
+    if (r.ok) assert.equal(r.decision.action, "passthrough");
+  });
+});

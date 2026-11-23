@@ -64,7 +64,11 @@ async fn main() {
     // 1) in-process dispatch
     let writer = Arc::new(Writer::start(&db, WriterConfig::default()).unwrap());
     let engine = build_engine(
-        &PipelineConfig::default(),
+        &PipelineConfig {
+            focus: std::env::var_os("BENCH_NO_FOCUS").is_none(),
+            sentinel: std::env::var_os("BENCH_NO_SENTINEL").is_none(),
+            ..PipelineConfig::default()
+        },
         Some((writer.clone(), db.clone())),
     );
     let parse = |v: Value| Envelope::from_value(v).unwrap();
