@@ -10,6 +10,7 @@ use std::collections::HashMap;
 pub const MAX_DEPS_PER_TASK: usize = 16;
 pub const MAX_ARGV: usize = 32;
 pub const MAX_ARG_BYTES: usize = 1024;
+pub const MAX_AGENT_PROMPT_BYTES: usize = 8 * 1024;
 pub const MAX_PLAN_BYTES: usize = 256 * 1024;
 pub const MAX_PARALLEL: u32 = 4;
 pub const DEFAULT_PARALLEL: u32 = 2;
@@ -33,7 +34,16 @@ pub struct PlanTask {
     #[serde(default)]
     pub description: String,
     /// argv, never a shell string: `["cargo", "test"]`.
+    #[serde(default)]
     pub command: Vec<String>,
+    /// Agent preset: runs `<agent bin> -p <prompt> [agent_args...]` (argv, never a shell) in the
+    /// task's worktree. Mutually exclusive with `command`. The binary is `claude` unless
+    /// `KEPLER_AGENT_BIN` says otherwise (resolved by the caller of [`validate_with`]).
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// Extra arguments for the agent preset, e.g. `["--permission-mode", "acceptEdits"]`.
+    #[serde(default)]
+    pub agent_args: Vec<String>,
     #[serde(default)]
     pub depends_on: Vec<String>,
     #[serde(default)]
@@ -191,6 +201,22 @@ pub fn parse_plan(text: &str) -> Result<PlanFile, PlanError> {
 /// Validate structure, limits and safety. Destructive commands become approval checkpoints;
 /// commands the Guardian denies outright make the whole plan invalid (fail closed).
 pub fn validate(plan: &PlanFile, guardian: &Guardian) -> Result<ValidPlan, PlanError> {
+    validate_with(plan, guardian, "claude")
+}
+
+/// The argv an `agent` task runs: `<bin> -p <prompt> <agent_args...>`.
+fn agent_argv(bin: &str, prompt: &str, extra: &[String]) -> Vec<String> {
+    let mut v = vec![bin.to_string(), "-p".into(), prompt.to_string()];
+    v.extend(extra.iter().cloned());
+    v
+}
+
+/// [`validate`] with an explicit agent binary for `agent` tasks.
+pub fn validate_with(
+    plan: &PlanFile,
+    guardian: &Guardian,
+    agent_bin: &str,
+) -> Result<ValidPlan, PlanError> {
     if plan.tasks.is_empty() {
         return Err(PlanError::Empty);
     }
@@ -217,22 +243,53 @@ pub fn validate(plan: &PlanFile, guardian: &Guardian) -> Result<ValidPlan, PlanE
             return Err(PlanError::Duplicate(t.id.clone()));
         }
         seen.push(&t.id);
-        if t.command.is_empty() || t.command.len() > MAX_ARGV {
+        let command: Vec<String> = match &t.agent {
+            Some(prompt) => {
+                if !t.command.is_empty() {
+                    return Err(PlanError::BadCommand {
+                        task: t.id.clone(),
+                        why: "use either `command` or `agent`, not both",
+                    });
+                }
+                if prompt.trim().is_empty() {
+                    return Err(PlanError::BadCommand {
+                        task: t.id.clone(),
+                        why: "agent prompt is empty",
+                    });
+                }
+                agent_argv(agent_bin, prompt, &t.agent_args)
+            }
+            None => {
+                if !t.agent_args.is_empty() {
+                    return Err(PlanError::BadCommand {
+                        task: t.id.clone(),
+                        why: "agent_args needs an `agent` prompt",
+                    });
+                }
+                t.command.clone()
+            }
+        };
+        if command.is_empty() || command.len() > MAX_ARGV {
             return Err(PlanError::BadCommand {
                 task: t.id.clone(),
                 why: "command must have 1 to 32 arguments",
             });
         }
-        if t.command
+        let arg_limit = if t.agent.is_some() {
+            MAX_AGENT_PROMPT_BYTES
+        } else {
+            MAX_ARG_BYTES
+        };
+        if command
             .iter()
-            .any(|a| a.len() > MAX_ARG_BYTES || a.contains('\0'))
+            .any(|a| a.len() > arg_limit || a.contains('\0'))
         {
             return Err(PlanError::BadCommand {
                 task: t.id.clone(),
                 why: "argument too long or contains NUL",
             });
         }
-        if t.command[0].is_empty() {
+        if command[0].is_empty() {
             return Err(PlanError::BadCommand {
                 task: t.id.clone(),
                 why: "empty program name",
@@ -249,7 +306,7 @@ pub fn validate(plan: &PlanFile, guardian: &Guardian) -> Result<ValidPlan, PlanE
         if retries > MAX_RETRIES {
             return Err(PlanError::BadLimit("max_retries must be 0 to 3"));
         }
-        let joined = t.command.join(" ");
+        let joined = command.join(" ");
         if !detect_secrets(&joined).is_empty() {
             return Err(PlanError::SecretInCommand(t.id.clone()));
         }
@@ -276,7 +333,7 @@ pub fn validate(plan: &PlanFile, guardian: &Guardian) -> Result<ValidPlan, PlanE
         tasks.push(NewTask {
             key: t.id.clone(),
             description: t.description.clone(),
-            argv: t.command.clone(),
+            argv: command,
             timeout_secs: timeout,
             max_retries: retries,
             needs_approval,
@@ -429,5 +486,38 @@ mod tests {
         ))
         .unwrap_err();
         assert_eq!(e, PlanError::SecretInCommand("a".into()));
+    }
+
+    #[test]
+    fn agent_preset_expands_to_argv_without_a_shell() {
+        let p = parse_plan(
+            r#"{"name":"p","tasks":[{"id":"a","agent":"say hi; echo ok","agent_args":["--permission-mode","acceptEdits"]}]}"#,
+        )
+        .unwrap();
+        let v = validate_with(&p, &Guardian::default(), "fake-agent").unwrap();
+        // The prompt is one argv element; whatever it contains, no shell ever sees it.
+        assert_eq!(
+            v.tasks[0].argv,
+            vec![
+                "fake-agent",
+                "-p",
+                "say hi; echo ok",
+                "--permission-mode",
+                "acceptEdits"
+            ]
+        );
+    }
+
+    #[test]
+    fn agent_and_command_are_mutually_exclusive() {
+        let both =
+            parse(r#"{"name":"p","tasks":[{"id":"a","agent":"x","command":["git","status"]}]}"#);
+        assert!(matches!(both, Err(PlanError::BadCommand { .. })));
+        let none = parse(r#"{"name":"p","tasks":[{"id":"a"}]}"#);
+        assert!(matches!(none, Err(PlanError::BadCommand { .. })));
+        let args = parse(
+            r#"{"name":"p","tasks":[{"id":"a","command":["git","status"],"agent_args":["x"]}]}"#,
+        );
+        assert!(matches!(args, Err(PlanError::BadCommand { .. })));
     }
 }

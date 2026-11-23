@@ -6,6 +6,16 @@ packages exist. License: MIT. Everything below is on branch `feat/rust-core-d0` 
 
 ## [Unreleased]
 
+### Added (functional modules, Windows)
+- **Vision runs against a real browser**: the worker launches an already-installed Microsoft Edge (`channel: msedge`), then Chrome, then Playwright's Chromium, or `KEPLER_VISION_BROWSER`; `kepler vision setup` installs the embedded worker sources plus the pinned `playwright` package into the data directory (no browser download, no postinstall); `kepler vision status --probe` launches the browser once and reports which one, or `browser: NONE` with the fix. New findings: HTTP 4xx/5xx sub-resources and broken same-origin links (`links.broken`); screenshots capped at 2 MiB. Worker process tree (browser included) is killed with `taskkill /T` on timeout.
+- **Orbit `agent` tasks**: `{"agent": "<prompt>", "agent_args": [...]}` runs `claude -p` (or `KEPLER_AGENT_BIN`) as argv in the task worktree; task output is stored in separate stdout/stderr logs and redacted when the task ends; `kepler orbit logs <run> <task>`.
+- **`scripts/acceptance.ps1`** and the `acceptance.yml` workflow (windows-2022): functional suite over the release binary with a PASS/FAIL/SKIP table; skips are never passes.
+
+### Fixed (functional modules)
+- Orbit `cleanup` only removed worktrees/branches whose paths were recorded in the database, so cancelled or killed tasks leaked a prunable worktree registration and their branch. It now derives both from the run and task ids.
+- Orbit logs mislabelled output: both pipes shared one file and two headers were written up front, so stdout could appear under `--- stderr ---`.
+- The Vision worker environment lacked `ProgramFiles*`, which Playwright needs to find an installed Edge/Chrome.
+
 ### Added
 - **Private-repo testing** (anonymous download first; token only if `KEPLER_GITHUB_TOKEN` is set or as a fallback after a 401/403/404): `install.sh`/`install.ps1` accept an optional GitHub token (`KEPLER_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token`) and then download assets through the GitHub API (`Authorization` only to `https://api.github.com`, never printed or stored; SHA-256 still mandatory). Tests in `tests/installers/`; README section "Probar con el repo privado".
 

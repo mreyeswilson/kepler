@@ -13,8 +13,8 @@
 | **Memory** | FTS5 con alcance, ranking, dedupe/supersession, presupuesto de tokens estimados, controles `kepler memory ...`. [ADR-0010](docs/decisions/0010-memory-storage-and-ranking.md) | Pesos sin afinar; sin embeddings |
 | **Guardian** | Preflight de herramientas *fail-closed*, reglas del usuario, secretos en resultados (`redact`), presupuesto de contexto. [ADR-0011](docs/decisions/0011-guardian-and-wire-additions.md) | Coincidencia de cadenas, no es un sandbox; sin tokenizador real; sin compresión de salida |
 | **Sentinel** | Auditoría determinista: reglas de rutas en el daemon (`files.changed`) y reglas de líneas añadidas sobre `git diff` (`kepler sentinel audit`); hallazgos `confirmed`/`suspected` en `audit_findings`. [ADR-0015](docs/decisions/0015-sentinel-and-findings.md) | Sin AST ni integración con linters/tests del proyecto; reglas simples |
-| **Vision** | Gestor Rust (lazy, timeouts con kill, allowlist localhost, entorno mínimo) + worker TypeScript/Playwright privado en `workers/vision`. [ADR-0016](docs/decisions/0016-vision-worker.md) | **El worker nunca se ejecutó contra un Chromium real** (no se descargó ningún navegador); apagado por defecto hasta configurar `KEPLER_VISION_WORKER` |
-| **Orbit** | Planificador DAG de tareas de comandos, concurrencia acotada, un git worktree por tarea, aprobaciones para comandos destructivos, `kepler orbit ...`. [ADR-0017](docs/decisions/0017-orbit-dag-scheduler.md) | No inicia agentes por sí mismo; sin límites de CPU/RAM del SO; el kill de procesos en Unix no se ejecutó fuera de Windows |
+| **Vision** | Gestor Rust (lazy, timeouts con kill, allowlist localhost, entorno mínimo) + worker TypeScript/Playwright privado en `workers/vision`. [ADR-0016](docs/decisions/0016-vision-worker.md) | **Probado en Windows 11 con Microsoft Edge real** (`scripts/acceptance.ps1`: error de consola, recurso 404, enlace roto, captura PNG, allowlist, timeout con kill del árbol). Necesita Node >= 22.18 y `kepler vision setup`; Linux/macOS **no probados**; sin auditoría de contraste ni árbol de accesibilidad |
+| **Orbit** | Planificador DAG de tareas de comandos, concurrencia acotada, un git worktree por tarea, aprobaciones para comandos destructivos, `kepler orbit ...`. [ADR-0017](docs/decisions/0017-orbit-dag-scheduler.md) | **Probado en Windows** con repos git reales (dependencias, commit en la rama de la tarea, aprobación + resume, cancelación con kill del árbol, cleanup) y con `claude -p` real mediante el preset `agent`. Sin límites de CPU/RAM del SO; el kill de procesos en Unix **no se ha ejecutado** |
 | **Genesis** | **No implementado.** Solo diseño y requisitos previos. [ADR-0018](docs/decisions/0018-genesis-deferred-design.md) | No existe UI de escritorio |
 
 Infraestructura: eventos v1 con fixtures, 8 capacidades negociadas ([ADR-0002](docs/decisions/0002-adapter-capabilities.md)), IPC local de usuario único ([ADR-0007](docs/decisions/0007-ipc-wire-protocol.md)), SQLite WAL + FTS5 con redacción de secretos, daemon lazy con apagado por inactividad, servidor MCP stdio ([ADR-0012](docs/decisions/0012-mcp-stdio-minimal-server.md)), adaptador Pi con hooks automáticos (`adapters/pi`, `private: true`, [ADR-0013](docs/decisions/0013-pi-automatic-hooks.md)). Mediciones reales en [PERFORMANCE.md](docs/development/PERFORMANCE.md).
@@ -89,7 +89,7 @@ cargo build --release            # binario: target/release/kepler (kepler.exe en
 cargo test --workspace           # los tests de Orbit/Sentinel usan `git` real en repos temporales
 ```
 
-Playwright (opcional, solo para Vision): `cd workers/vision && npm ci --ignore-scripts && npm run build && npx playwright install chromium` (la descarga del navegador la haces tú; Kepler nunca la hace).
+Vision (opcional): ver "Preparar Vision". Desarrollo del worker: `cd workers/vision && npm ci --ignore-scripts && npm run build`. Kepler nunca descarga un navegador; si no tienes Edge/Chrome, `npx playwright install chromium` lo haces tú.
 
 ## Uso
 
@@ -104,14 +104,31 @@ kepler mcp serve                               # MCP por stdio: kepler_doctor, k
 kepler sentinel audit --repo . [--staged | --base main] [--store] [--fail-on high]
 kepler sentinel list [--min-severity medium] ; kepler sentinel dismiss <id>
 
-KEPLER_VISION_WORKER=workers/vision/dist/src/main.js kepler vision check http://localhost:3000
-kepler vision status [--probe] ; kepler vision clean
+kepler vision setup                            # una vez: instala el worker en el directorio de datos (npm install de playwright; sin navegador)
+kepler vision status --probe                   # lanza el navegador una vez y dice cuál encontró (Edge, Chrome, Chromium)
+kepler vision check http://localhost:3000 [--viewport 375x812] [--screenshot] [--store]
+kepler vision clean
 
 kepler orbit plan plan.json                    # valida (ciclos, límites, secretos, Guardian); no ejecuta
 kepler orbit run plan.json --repo . --base HEAD
 kepler orbit approve|deny <run> <task> ; kepler orbit resume <run>
-kepler orbit status <run> ; kepler orbit cancel <run> ; kepler orbit cleanup <run> --yes
+kepler orbit status <run> ; kepler orbit logs <run> <task> ; kepler orbit cancel <run> ; kepler orbit cleanup <run> --yes
 ```
+
+### Preparar Vision (Windows)
+
+1. Instala Node.js >= 22.18 (el worker son fuentes TypeScript que Node ejecuta directamente; no hay paso de compilación).
+2. `kepler vision setup`: escribe el worker en `%LOCALAPPDATA%\kepler\vision-worker` y ejecuta `npm install --omit=dev --ignore-scripts` solo para `playwright` (versión fijada). Es explícito: no hay `postinstall` oculto y no se descarga ningún navegador.
+3. Navegador: se usa uno ya instalado, en este orden: `KEPLER_VISION_BROWSER` (`msedge`, `chrome` o ruta a un ejecutable), Microsoft Edge (viene con Windows 11), Google Chrome, Chromium de Playwright. Si no hay ninguno, `kepler vision status --probe` lo dice (`browser: NONE`, exit 2) y propone instalar Edge/Chrome o ejecutar `npx playwright install chromium`.
+4. `kepler vision status --probe` para comprobarlo. `KEPLER_VISION_WORKER=<ruta>` sustituye al worker instalado (desarrollo: `workers/vision`, `npm ci && npm run build`, `dist/src/main.js`).
+
+### Suite de aceptación funcional
+
+`powershell -File scripts/acceptance.ps1 [-Kepler ruta\kepler.exe] [-RequireVision] [-WithClaude]` ejercita el binario release en un `KEPLER_HOME` temporal (version, doctor, emit passthrough/enrich/deny, memory, sentinel, inspect, MCP por stdio, Vision contra un servidor local y un navegador real, Orbit con repos git temporales incl. cancelación y tarea `agent`) e imprime una tabla PASS/FAIL/SKIP; sale con 1 si algo falla. Un SKIP (p. ej. sin Node o sin navegador) nunca cuenta como PASS; `-RequireVision` lo convierte en fallo (así lo usa el job `acceptance.yml` en `windows-2022`). `-WithClaude` añade una tarea real `claude -p` no destructiva.
+
+### Tareas de agente en Orbit
+
+Una tarea puede ser `{"id":"fix","agent":"<prompt>","agent_args":["--permission-mode","acceptEdits"],"timeout_secs":900}` en lugar de `command`: ejecuta `claude -p "<prompt>" <agent_args...>` como argv (nunca por un shell) en el worktree de la tarea, con timeout y kill del árbol; lo que el agente deje en el worktree se commitea en `kepler/orbit/<run>/<task>`. `KEPLER_AGENT_BIN` cambia el ejecutable. Salida en `kepler orbit logs`, con secretos redactados al terminar la tarea. Los permisos del agente son los que le des con `agent_args`; Orbit no los amplía.
 
 Ejemplo de `plan.json` (comandos como *argv*, nunca cadenas de shell):
 
@@ -133,7 +150,9 @@ Ejemplo de `plan.json` (comandos como *argv*, nunca cadenas de shell):
 | `KEPLER_FOCUS_SOFT_TOOL_CALLS`, `KEPLER_FOCUS_SOFT_SECONDS` | Presupuestos blandos de Focus |
 | `KEPLER_GUARDIAN_RULES` | Archivo de reglas del usuario (solo endurecen) |
 | `KEPLER_MEMORY`, `KEPLER_MEMORY_BUDGET_TOKENS`, `KEPLER_MEMORY_RETENTION_DAYS` | Controles de Memory |
-| `KEPLER_VISION_WORKER`, `KEPLER_VISION_NODE`, `KEPLER_VISION_ALLOW_HOSTS` | Worker de Vision (apagado sin `WORKER`) y hosts extra permitidos |
+| `KEPLER_VISION_WORKER`, `KEPLER_VISION_NODE`, `KEPLER_VISION_ALLOW_HOSTS` | Worker de Vision (por defecto el instalado por `kepler vision setup`), Node a usar y hosts extra permitidos |
+| `KEPLER_VISION_BROWSER`, `KEPLER_NPM` | Navegador de Vision (`msedge`, `chrome`, `chromium` o ruta a un ejecutable) y npm usado por `vision setup` |
+| `KEPLER_AGENT_BIN` | Ejecutable de las tareas `agent` de Orbit (por defecto `claude`) |
 
 ## Arquitectura
 

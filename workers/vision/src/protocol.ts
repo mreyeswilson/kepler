@@ -15,7 +15,7 @@ export interface Viewport {
 }
 
 export type Request =
-  | { v: 1; id: string; op: "hello" }
+  | { v: 1; id: string; op: "hello"; launch?: boolean }
   | {
       v: 1;
       id: string;
@@ -85,7 +85,7 @@ export function parseRequest(line: string): ParseResult {
   if (id === "") return bad("", "malformed", "missing or invalid id");
   if (raw["v"] !== PROTOCOL_VERSION) return bad(id, "unsupported_version", `protocol version ${String(raw["v"])} is not supported`);
   const op = raw["op"];
-  if (op === "hello") return { ok: true, req: { v: 1, id, op: "hello" } };
+  if (op === "hello") return { ok: true, req: raw["launch"] === true ? { v: 1, id, op: "hello", launch: true } : { v: 1, id, op: "hello" } };
   if (op === "shutdown") return { ok: true, req: { v: 1, id, op: "shutdown" } };
   if (op !== "check") return bad(id, "unknown_op", "unknown op");
 

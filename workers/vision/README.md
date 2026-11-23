@@ -6,18 +6,23 @@ stdio (protocol v1, `src/protocol.ts`, mirrored by the Rust crate `kepler-vision
 
 ## What is verified and what is not
 * Verified by tests: URL allowlist, protocol validation, timeouts, memory guard, idle expiry,
-  sanitization, a real process answering `hello`, and the Rust manager end to end up to the point of
-  launching a browser (`browser_unavailable` when Chromium is missing).
-* **Not verified:** any run against a real Chromium page. No browser was downloaded when this was
-  written, so the DOM probe (`src/probe.ts`), screenshots and request interception are untested
-  against a real browser.
+  sanitization, a real process answering `hello`, browser candidate selection.
+* **Verified against a real browser (Windows 11, Microsoft Edge via Playwright `channel: "msedge"`)** by
+  `scripts/acceptance.ps1`: console error, 404 sub-resource, broken same-origin link, missing alt, PNG
+  screenshot, allowlist refusal, timeout kill with no orphan browser.
+* **Not verified:** Linux/macOS, Chrome and Playwright's bundled Chromium (the code paths exist, no run),
+  contrast and accessibility-tree analysis (absent).
 
 ## Use
+The normal route needs no checkout: `kepler vision setup` embeds these sources in the binary, writes them
+to `<data dir>/vision-worker` and runs `npm install` for the pinned `playwright` package (no browser is
+downloaded; Node >= 22.18 runs the `.ts` files directly). For development:
 ```
 npm ci --ignore-scripts && npm run build
-npx playwright install chromium        # explicit, user-run; Kepler never downloads a browser
 KEPLER_VISION_WORKER=<repo>/workers/vision/dist/src/main.js kepler vision check http://localhost:3000
 ```
+Browser choice: `KEPLER_VISION_BROWSER` (`msedge`, `chrome`, `chromium` or an executable path), else the
+first that launches of Edge, Chrome, Playwright's Chromium (`npx playwright install chromium`, run by you).
 Nothing starts at boot: the worker exists only while `kepler vision check` runs, and closes its
 browser after 60 s idle, on shutdown, on timeout and when stdin closes.
 
