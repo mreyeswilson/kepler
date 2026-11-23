@@ -29,9 +29,9 @@ function load(env: Record<string, string>): Map<string, Handler> {
 
 const ctx = { cwd: "/work/repo", sessionManager: { getSessionId: () => "sess-9" } };
 
-test("registers only input and session_shutdown hooks", () => {
+test("registers the automatic hooks", () => {
   const h = load({});
-  assert.deepEqual([...h.keys()].sort(), ["input", "session_shutdown"]);
+  assert.deepEqual([...h.keys()].sort(), ["agent_settled", "agent_start", "before_agent_start", "context", "input", "session_shutdown", "tool_call", "tool_result"]);
 });
 
 test("input hook is observe-only: returns undefined immediately even with no core", () => {

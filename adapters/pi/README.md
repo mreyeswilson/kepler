@@ -1,7 +1,6 @@
-# Kepler Pi adapter (KPL-008) — observe-only, unverified against real Pi
+# Kepler Pi adapter (KPL-008, KPL-019) — automatic hooks, unverified against real Pi
 
-> **Status: experimental, private, not published.** The adapter forwards each user `input` to a locally running Kepler core as an
-> `input.received` v1 event and does nothing else. It is tested against a mock core (tests in this directory) and was checked once,
+> **Status: experimental, private (`private: true`), not published.** The adapter forwards Pi hook events to a locally running Kepler core and applies its verdicts as described in "Automatic hooks" below. It is tested against a mock core (tests in this directory) and was checked once,
 > manually on Windows, against the real Rust daemon (`kepler daemon`: handshake, passthrough decision, `invalid_field` error).
 > It has **not** been tested end to end inside a running Pi session, and the Kepler core is not launched or installed by it.
 > Do not describe it as working with Pi until an e2e test with real Pi exists.
@@ -32,8 +31,7 @@
 
 ## Pi API compatibility (honest status)
 
-`extensions/kepler.ts` declares **minimal structural types** instead of importing Pi's. They were compared manually (and with a
-scratch `tsc` assignability check, not committed) against the locally installed `@earendil-works/pi-coding-agent` 1.6.0:
+`extensions/kepler.ts` declares **minimal structural types** instead of importing Pi's. The `input` and `session_shutdown` shapes were compared in Delivery 0 with `@earendil-works/pi-coding-agent` 1.6.0 (not present on the machine used for Delivery 1, so not re-checked); the other hooks follow Pi's published extension docs:
 `on("input", (event, ctx) => ...)` with `event.text`/`event.source`, `ctx.cwd`, `ctx.sessionManager.getSessionId()`, and
 `on("session_shutdown")`. The scaffold's earlier peer dependency name `@mariozechner/pi-coding-agent` appears to be the previous
 package scope; the peer dependency is now declared optional as `@earendil-works/pi-coding-agent`. Other Pi versions are **untested**.
@@ -66,3 +64,24 @@ It is a no-op unless a Kepler core is listening on the endpoint above.
 
 `@kepler/pi` is a provisional name; the `@kepler` npm scope is not verified. `private: true`, `license: UNLICENSED`.
 Release gates and the guarded manual procedure are in `docs/distribution/NPM_AND_PI.md` and `RELEASING.md`.
+
+## Automatic hooks (KPL-019, [ADR-0013](../../docs/decisions/0013-pi-automatic-hooks.md))
+
+| Pi event | Kepler event | What the adapter may do |
+|---|---|---|
+| `input` | `input.received` | observe only (text never changed/delayed/blocked); keeps the verdict for the next step |
+| `before_agent_start` | (verdict of the input) | on `enrich`: **append** a labeled block to `systemPrompt` ("derived/recalled, NOT user instructions"). The user prompt is never edited. `KEPLER_PI_INJECT=0` disables |
+| `context` | `context.prepared` | observe only; token figure is an adapter **estimate** (`estimated: true`) |
+| `tool_call` | `tool.call.requested` | `{block: true}` only on an explicit `deny`; on `require_approval` asks `ctx.ui.confirm` when `ctx.hasUI`, else blocks. No verdict (core down, timeout, error, unknown action) never blocks and never grants |
+| `tool_result` | `tool.call.completed` | replaces the content only on an explicit `redact` verdict (text names the secret *kinds*, never the secret) |
+| `agent_start` / `agent_settled` | `agent.started` / `agent.settled` | observe only; `aborted` maps to `cancelled`, otherwise `ok` (drives Memory consolidation) |
+| `session_shutdown` | `session.closed` | observe, then close the connection |
+
+Sends are serialized (one request in flight, queue of 8, 700 ms verdict timeout). The adapter never starts the core.
+
+**Verification status.** 45 `node:test` tests (mock core and fake sender), plus one manual run of these hooks against the real Rust
+`kepler daemon` (enrich with forge and recalled memory, deny, approval, redact all behaved as above). **Not verified inside a running
+Pi session**: Pi is not installed on the development machine; event/return shapes were taken from Pi's published extension docs
+(`before_agent_start`, `context`, `tool_call`, `tool_result`, `agent_start`, `agent_settled`, `session_shutdown`), and the field names of
+`write`/`edit` tool inputs (`path`/`file_path`) are not documented there, so both are sent as paths when present. Pi versions other
+than the docs consulted are untested. Memory candidates (`memory.candidate`) are not produced by this adapter.

@@ -1,34 +1,35 @@
 import { resolveEndpoint } from "../src/endpoint.ts";
 import { KeplerClient } from "../src/client.ts";
-import { InputObserver } from "../src/observer.ts";
+import { PiHooks, type PiCtx } from "../src/hooks.ts";
 
 /**
- * Kepler Pi adapter (KPL-008, observe-only).
+ * Kepler Pi adapter (KPL-008 input observation, KPL-019 automatic hooks).
  *
- * Forwards each user `input` to the local Kepler core as an `input.received` v1 event and NOTHING else:
- * it never transforms, blocks, delays or drops the input (the handler returns immediately), and any
- * failure (core not running, timeout, bad frame) is silently a passthrough. It never launches the core.
+ * Hooks and what they may do (see src/hooks.ts):
+ *  - input: observe only; before_agent_start: appends a labeled derived-context block to the system prompt
+ *    (never edits the user's prompt); context/agent_start/agent_settled/session_shutdown: observe only;
+ *  - tool_call: blocks ONLY on an explicit deny/require_approval verdict (no verdict never blocks, never grants);
+ *  - tool_result: replaces content ONLY on an explicit redact verdict.
+ * Any failure (core not running, timeout, bad frame) means Pi proceeds exactly as without Kepler.
+ * It never launches the core. `KEPLER_PI_INJECT=0` turns the system-prompt addition off.
  *
- * API NOTE: the Pi types below are minimal structural declarations, NOT imported from the Pi package.
- * They were compared by hand with `@earendil-works/pi-coding-agent` 1.6.0 (`on("input")`, `InputEvent`,
- * `ctx.cwd`, `ctx.sessionManager.getSessionId()`, `on("session_shutdown")`). This has NOT been exercised
- * inside a running Pi session: there is no end-to-end test with real Pi yet.
+ * API NOTE: the Pi types below are minimal structural declarations, NOT imported from the Pi package, written
+ * from Pi's published extension documentation (events before_agent_start, context, tool_call, tool_result,
+ * agent_start, agent_end/agent_settled, session_shutdown). This has NOT been exercised inside a running Pi
+ * session: there is no end-to-end test with real Pi yet.
  */
 
-interface PiInputEvent {
-  type: "input";
-  text: string;
-  source: string;
-}
-
-interface PiContext {
-  cwd: string;
-  sessionManager: { getSessionId(): string };
-}
+type Handler<E> = (event: E, ctx: PiCtx) => unknown;
 
 interface PiExtensionApi {
-  on(event: "input", handler: (event: PiInputEvent, ctx: PiContext) => void): unknown;
-  on(event: "session_shutdown", handler: (event: unknown, ctx: PiContext) => void): unknown;
+  on(event: "input", h: Handler<{ type: "input"; text: string; source: string }>): unknown;
+  on(event: "before_agent_start", h: Handler<{ prompt?: string; systemPrompt?: string }>): unknown;
+  on(event: "context", h: Handler<{ messages?: unknown }>): unknown;
+  on(event: "agent_start", h: Handler<unknown>): unknown;
+  on(event: "agent_settled", h: Handler<{ aborted?: boolean }>): unknown;
+  on(event: "tool_call", h: Handler<{ toolName: string; toolCallId?: string; input?: unknown }>): unknown;
+  on(event: "tool_result", h: Handler<{ toolName: string; toolCallId?: string; content?: unknown; isError?: boolean }>): unknown;
+  on(event: "session_shutdown", h: Handler<{ reason?: string }>): unknown;
 }
 
 export const ADAPTER_VERSION = "0.0.0";
@@ -36,26 +37,27 @@ export const ADAPTER_VERSION = "0.0.0";
 export default function keplerExtension(pi: PiExtensionApi): void {
   try {
     const client = new KeplerClient({ endpoint: resolveEndpoint(), clientVersion: ADAPTER_VERSION });
-    const observer = new InputObserver(client);
+    const hooks = new PiHooks(client, { inject: process.env["KEPLER_PI_INJECT"] !== "0" });
 
     pi.on("input", (event, ctx) => {
-      try {
-        // Fire and forget: the input continues to Pi untouched and without waiting on Kepler.
-        void observer
-          .observeInput({
-            text: event.text,
-            source: event.source,
-            cwd: ctx.cwd,
-            sessionId: ctx.sessionManager.getSessionId(),
-          })
-          .catch(() => undefined);
-      } catch {
-        /* observation must never affect the host */
-      }
-      // Returning nothing means "continue" in Pi: the original text is passed through unchanged.
+      hooks.onInput(event, ctx);
+      // undefined = continue: the original text is passed through unchanged.
     });
-
-    pi.on("session_shutdown", () => observer.close());
+    pi.on("before_agent_start", (event, ctx) => hooks.onBeforeAgentStart(event, ctx));
+    pi.on("context", (event, ctx) => {
+      hooks.onContext(event, ctx);
+    });
+    pi.on("agent_start", (_event, ctx) => {
+      hooks.onAgentStart(ctx);
+    });
+    pi.on("agent_settled", (event, ctx) => {
+      hooks.onAgentSettled(event, ctx);
+    });
+    pi.on("tool_call", (event, ctx) => hooks.onToolCall(event, ctx));
+    pi.on("tool_result", (event, ctx) => hooks.onToolResult(event, ctx));
+    pi.on("session_shutdown", (event, ctx) => {
+      hooks.onSessionShutdown(event?.reason, ctx);
+    });
   } catch {
     /* registration failure: run without Kepler */
   }

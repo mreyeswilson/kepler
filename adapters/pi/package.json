@@ -2,7 +2,7 @@
   "name": "@kepler/pi",
   "version": "0.0.0",
   "private": true,
-  "description": "Pi Coding Agent adapter for Kepler: observe-only input forwarding over local IPC (not verified against a live Pi session)",
+  "description": "Pi Coding Agent adapter for Kepler: automatic hooks over local IPC (not verified against a live Pi session)",
   "keywords": [
     "pi-package",
     "pi-coding-agent",

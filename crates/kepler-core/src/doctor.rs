@@ -136,7 +136,7 @@ impl DoctorReport {
                 },
             },
             "adapters": [
-                { "harness": "pi", "status": "observe_only_unverified",
+                { "harness": "pi", "status": "hooks_unverified",
                   "detail": "adapters/pi is private; not verified against a live Pi session" },
                 { "harness": "claude-code|gemini-cli|opencode|codex", "status": "not_implemented" }
             ],
@@ -234,7 +234,7 @@ impl DoctorReport {
         line(
             &mut s,
             "  pi",
-            "observe-only adapter (private, not verified with a live Pi)".into(),
+            "automatic hooks (private, not verified with a live Pi)".into(),
         );
         line(&mut s, "  others", "not implemented".into());
         s
