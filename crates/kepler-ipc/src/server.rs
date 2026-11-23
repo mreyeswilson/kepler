@@ -13,7 +13,7 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::io::{split, BufReader};
+use tokio::io::{split, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Notify, Semaphore};
 use tokio::time::{timeout, Instant};
 
@@ -190,6 +190,31 @@ async fn send<W: tokio::io::AsyncWrite + Unpin>(
     )
 }
 
+/// Orderly close after a fatal frame: half-close our side so the peer reads the
+/// frame followed by EOF, then discard (bounded) unread peer data. Closing a
+/// socket with unread inbound data makes Linux/macOS send RST, which can
+/// destroy the fatal frame before the client reads it.
+async fn linger_close<W, R>(w: &mut W, r: &mut R)
+where
+    W: tokio::io::AsyncWrite + Unpin,
+    R: tokio::io::AsyncRead + Unpin,
+{
+    const LINGER: Duration = Duration::from_millis(250);
+    const MAX_DRAIN: usize = 64 * 1024;
+    let _ = timeout(LINGER, w.shutdown()).await;
+    let mut buf = [0u8; 4096];
+    let mut drained = 0usize;
+    let _ = timeout(LINGER, async {
+        while drained < MAX_DRAIN {
+            match r.read(&mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => drained += n,
+            }
+        }
+    })
+    .await;
+}
+
 async fn run_connection<H: Handler>(stream: IpcStream, guard: ActiveGuard<H>, cfg: &ServerConfig) {
     let id = guard.id;
     let (r, mut w) = split(stream);
@@ -201,6 +226,7 @@ async fn run_connection<H: Handler>(stream: IpcStream, guard: ActiveGuard<H>, cf
         Next::Closed => return,
         Next::Fatal(f) => {
             send(&mut w, &f, cfg).await;
+            linger_close(&mut w, &mut r).await;
             return;
         }
     };
@@ -214,6 +240,7 @@ async fn run_connection<H: Handler>(stream: IpcStream, guard: ActiveGuard<H>, cf
                 true,
             );
             send(&mut w, &f, cfg).await;
+            linger_close(&mut w, &mut r).await;
             return;
         }
     };
@@ -228,11 +255,13 @@ async fn run_connection<H: Handler>(stream: IpcStream, guard: ActiveGuard<H>, cf
             true,
         );
         send(&mut w, &f, cfg).await;
+        linger_close(&mut w, &mut r).await;
         return;
     }
     if hello.client.is_empty() || hello.client.len() > 64 {
         let f = ServerFrame::error(None, "bad_request", "invalid client name", true);
         send(&mut w, &f, cfg).await;
+        linger_close(&mut w, &mut r).await;
         return;
     }
     let negotiated = match &hello.capabilities {
@@ -242,6 +271,7 @@ async fn run_connection<H: Handler>(stream: IpcStream, guard: ActiveGuard<H>, cf
             Err(e) => {
                 let f = ServerFrame::error(None, "invalid_capabilities", e.to_string(), true);
                 send(&mut w, &f, cfg).await;
+                linger_close(&mut w, &mut r).await;
                 return;
             }
         },
@@ -264,6 +294,7 @@ async fn run_connection<H: Handler>(stream: IpcStream, guard: ActiveGuard<H>, cf
             Next::Closed => return,
             Next::Fatal(f) => {
                 send(&mut w, &f, cfg).await;
+                linger_close(&mut w, &mut r).await;
                 return;
             }
         };
@@ -280,9 +311,11 @@ async fn run_connection<H: Handler>(stream: IpcStream, guard: ActiveGuard<H>, cf
         if errors >= cfg.max_consecutive_errors {
             let f = ServerFrame::error(None, "too_many_errors", "closing connection", true);
             send(&mut w, &f, cfg).await;
+            linger_close(&mut w, &mut r).await;
             return;
         }
         if matches!(reply, ServerFrame::Error { fatal: true, .. }) {
+            linger_close(&mut w, &mut r).await;
             return;
         }
     }
