@@ -23,7 +23,7 @@ Genesis is a later-phase module, activated only for actual design tasks and vali
 - Deterministic local rules first; model use is optional and explicit.
 - Default private data stays local. Sensitive content must be filtered and controllable.
 - Traceable, reversible, transparent changes.
-- Open-source intent; license selection is a separate decision.
+- Open-source intent; licensed under MIT.
 
 ### Outcome measures
 - Fewer unsupported claims, repeated calls and unrelated diffs.

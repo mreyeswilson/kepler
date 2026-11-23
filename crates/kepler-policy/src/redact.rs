@@ -227,16 +227,22 @@ fn looks_secret(tok: &str) -> bool {
         return true;
     }
     // High-entropy blob: long, base64-ish alphabet, mixed case and digits.
-    if t.len() >= 32
+    // Filesystem paths (`/Users/Me/proj/target/...`) mix case and digits trivially, so a
+    // path-shaped token is judged per segment instead of as one blob.
+    let path_like = ["/", "./", "../", "~/"].iter().any(|p| t.starts_with(p));
+    if path_like {
+        return t.split('/').any(looks_like_blob);
+    }
+    looks_like_blob(t)
+}
+
+fn looks_like_blob(t: &str) -> bool {
+    t.len() >= 32
         && t.bytes()
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'_' | b'-' | b'='))
-    {
-        let upper = t.bytes().any(|b| b.is_ascii_uppercase());
-        let lower = t.bytes().any(|b| b.is_ascii_lowercase());
-        let digit = t.bytes().any(|b| b.is_ascii_digit());
-        return upper && lower && digit;
-    }
-    false
+        && t.bytes().any(|b| b.is_ascii_uppercase())
+        && t.bytes().any(|b| b.is_ascii_lowercase())
+        && t.bytes().any(|b| b.is_ascii_digit())
 }
 
 /// Names of the kinds of secret found in `text` (empty = nothing found). Kinds are coarse
@@ -276,6 +282,15 @@ pub fn detect_secrets(text: &str) -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_mixed_case_file_paths_are_not_secrets() {
+        let p = "/Users/runner/work/kepler/kepler/target/debug/deps/orbit-0123456789abcdef";
+        assert!(detect_secrets(p).is_empty());
+        assert_eq!(redact(p), p);
+        // a real blob inside a path segment is still caught
+        assert!(!detect_secrets("/tmp/Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8Qr9St0UvWxYz").is_empty());
+    }
 
     #[test]
     fn detect_secrets_names_kinds_without_leaking() {

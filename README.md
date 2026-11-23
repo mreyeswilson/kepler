@@ -2,7 +2,7 @@
 
 **Intelligent Execution Control for Coding Agents** — runtime local-first (Rust) que reduce desvíos, trabajo innecesario, afirmaciones sin evidencia y tiempos excesivos de los agentes de código.
 
-> **Estado honesto:** el núcleo Rust, los módulos Forge, Memory, Guardian, Focus, Sentinel, Vision (gestor + worker), Orbit, el servidor MCP mínimo y el adaptador Pi tienen código y tests automatizados que pasan. **Nada se ha verificado contra una sesión real de Pi, un cliente MCP de terceros, un navegador Chromium real ni Linux/macOS.** No hay binarios publicados, ni paquete npm, ni licencia elegida. Detalle por componente más abajo.
+> **Estado honesto:** el núcleo Rust, los módulos Forge, Memory, Guardian, Focus, Sentinel, Vision (gestor + worker), Orbit, el servidor MCP mínimo y el adaptador Pi tienen código y tests automatizados que pasan. **Nada se ha verificado contra una sesión real de Pi, un cliente MCP de terceros, un navegador Chromium real ni Linux/macOS.** No hay release publicado todavía (los instaladores y el pipeline por tags no se han ejecutado contra uno real) ni paquete npm. Licencia: MIT. Detalle por componente más abajo.
 
 ## Qué hace hoy
 
@@ -19,9 +19,51 @@
 
 Infraestructura: eventos v1 con fixtures, 8 capacidades negociadas ([ADR-0002](docs/decisions/0002-adapter-capabilities.md)), IPC local de usuario único ([ADR-0007](docs/decisions/0007-ipc-wire-protocol.md)), SQLite WAL + FTS5 con redacción de secretos, daemon lazy con apagado por inactividad, servidor MCP stdio ([ADR-0012](docs/decisions/0012-mcp-stdio-minimal-server.md)), adaptador Pi con hooks automáticos (`adapters/pi`, `private: true`, [ADR-0013](docs/decisions/0013-pi-automatic-hooks.md)). Mediciones reales en [PERFORMANCE.md](docs/development/PERFORMANCE.md).
 
-## Instalación (desde el código fuente)
+## Instalación (Install)
 
-No hay binarios ni paquetes publicados. Requisitos: Rust estable >= 1.89 (`rustup`), Git; Node >= 22.18 solo para `adapters/pi` y `workers/vision`.
+> **Aún no existe ningún release.** Los instaladores descargan binarios del GitHub Release; hasta que se publique el primer tag `vX.Y.Z` fallarán con un error claro (no hay `SHA256SUMS`). Los instaladores y su verificación de checksums se probaron solo contra un release simulado en local, no contra uno real.
+
+### Instalador de una línea (Linux / macOS, x86_64 y aarch64)
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mreyeswilson/kepler/main/install.sh | sh
+```
+
+### Windows (PowerShell 5.1+, sin administrador, x86_64)
+
+```powershell
+irm https://raw.githubusercontent.com/mreyeswilson/kepler/main/install.ps1 | iex
+```
+
+**Revisa el script antes de ejecutarlo** (`curl -fsSL <url> | less`, o descárgalo y léelo): ejecutar código remoto con `curl | sh` / `irm | iex` exige confiar en ese script. Ambos: solo HTTPS (TLS 1.2+), sin telemetría, sin `sudo`/admin, **verifican el SHA-256** del archivo contra `SHA256SUMS` del release y abortan si no coincide, y lo único que ejecutan tras instalar es `kepler version`.
+
+| Variable | Efecto |
+|---|---|
+| `KEPLER_VERSION` | versión a instalar (`0.1.0` o `v0.1.0`); por defecto, el último release |
+| `KEPLER_INSTALL_DIR` | destino. Por defecto `$HOME/.local/bin` (Unix) o `%LOCALAPPDATA%\Programs\kepler\bin` (Windows) |
+| `KEPLER_ADD_TO_PATH=1` | solo Windows: **opt-in** para añadir el directorio al PATH de usuario (por defecto no se toca el PATH; se imprimen instrucciones). `KEPLER_NO_MODIFY_PATH=1` lo impide siempre |
+| `--uninstall` (sh) / `KEPLER_UNINSTALL=1` (PowerShell) | desinstala: `curl -fsSL <url> | sh -s -- --uninstall`; en PowerShell `$env:KEPLER_UNINSTALL=1` antes del `irm ... | iex` |\| sh -s -- --uninstall`; en PowerShell `$env:KEPLER_UNINSTALL=1` antes del `irm`) |
+| `KEPLER_REPO`, `KEPLER_BASE_URL` | repositorio alternativo / base de descarga alternativa (https o `file://`, para espejos y tests) |
+
+`install.sh --help` y `install.ps1 -Help` listan las opciones.
+
+### Descarga manual y verificación
+
+Cada release publica `kepler-<versión>-<target>.tar.gz` (`.zip` en Windows) y `SHA256SUMS`. Targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`. Cada archivo contiene `kepler[.exe]`, `LICENSE` y `README.md`.
+
+```sh
+# 1. checksum
+sha256sum --check --ignore-missing SHA256SUMS          # macOS: shasum -a 256 -c --ignore-missing SHA256SUMS
+# 2. atestación de procedencia (GitHub CLI)
+gh attestation verify kepler-X.Y.Z-<target>.tar.gz --repo mreyeswilson/kepler
+```
+
+Los binarios no están firmados/notarizados (Gatekeeper / SmartScreen pueden avisar); la integridad la dan `SHA256SUMS` y la atestación. Proceso de release: [RELEASING.md](RELEASING.md).
+
+### Desde el código fuente
+
+Requisitos: Rust estable >= 1.89 (`rustup`), Git; Node >= 22.18 solo para `adapters/pi` y `workers/vision`.
+
 
 ```bash
 git clone <repo> && cd kepler
@@ -101,7 +143,7 @@ Crates: `kepler-events` (envelope v1), `-policy` (motor, Guardian, redacción), 
 ## Qué falta (sin verificar o sin implementar)
 
 * Verificación con Pi real, cliente MCP de terceros, Chromium real, Linux y macOS (el código Unix del transporte y del kill de procesos de Orbit no se ejecutó fuera de Windows; lo cubrirá la matriz de CI).
-* Benchmark con/sin Kepler (KPL-032) y calibración de Focus; la compresión de salida de herramientas; detección/instalación de harnesses; binarios y paquete npm (bloqueados por licencia y verificación real).
+* Benchmark con/sin Kepler (KPL-032) y calibración de Focus; la compresión de salida de herramientas; detección/instalación de harnesses; primer release real y paquete npm (el npm sigue bloqueado hasta verificar con un Pi real).
 * Genesis y cualquier UI de escritorio.
 
 ## Documentación
@@ -110,4 +152,4 @@ Crates: `kepler-events` (envelope v1), `-policy` (motor, Guardian, redacción), 
 
 ## Licencia
 
-Pendiente de elegir; los crates declaran `UNLICENSED` y `publish = false`. No asumas derechos de reutilización hasta que exista un archivo `LICENSE`.
+[MIT](LICENSE) (2026). Los crates declaran `license = "MIT"` y siguen con `publish = false` (no se publican en crates.io); `adapters/pi` y `workers/vision` declaran MIT pero permanecen `private: true`.
