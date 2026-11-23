@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// Text produced by Kepler, never by the user. Always labeled `inferred`.
+/// Text produced by Kepler, never by the user. Labeled `inferred` (rules) or `recalled` (memory).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Derived {
     pub source: String,
@@ -9,6 +9,18 @@ pub struct Derived {
 }
 
 impl Derived {
+    pub fn new(
+        source: impl Into<String>,
+        text: impl Into<String>,
+        provenance: impl Into<String>,
+    ) -> Self {
+        Self {
+            source: source.into(),
+            text: text.into(),
+            provenance: provenance.into(),
+        }
+    }
+
     pub fn inferred(source: impl Into<String>, text: impl Into<String>) -> Self {
         Self {
             source: source.into(),

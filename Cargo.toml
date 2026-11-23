@@ -4,6 +4,7 @@ members = [
     "crates/kepler-events",
     "crates/kepler-policy",
     "crates/kepler-storage",
+    "crates/kepler-forge",
     "crates/kepler-ipc",
     "crates/kepler-core",
     "crates/kepler-cli",
@@ -12,7 +13,7 @@ members = [
 [workspace.package]
 version = "0.0.1"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.82"
 # License is still pending (see README). UNLICENSED means "no rights granted".
 license = "UNLICENSED"
 publish = false
@@ -26,6 +27,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 kepler-events = { path = "crates/kepler-events" }
 kepler-policy = { path = "crates/kepler-policy" }
 kepler-storage = { path = "crates/kepler-storage" }
+kepler-forge = { path = "crates/kepler-forge" }
 kepler-ipc = { path = "crates/kepler-ipc" }
 kepler-core = { path = "crates/kepler-core" }
 

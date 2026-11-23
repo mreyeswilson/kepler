@@ -179,6 +179,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kepler-forge"
+version = "0.0.1"
+dependencies = [
+ "kepler-events",
+ "kepler-policy",
+]
+
+[[package]]
 name = "kepler-ipc"
 version = "0.0.1"
 dependencies = [

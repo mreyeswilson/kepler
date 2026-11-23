@@ -57,4 +57,6 @@ Status is only "done" when code **and** tests exist. Measured performance is not
 | KPL-006 | Partial | `kepler doctor` reports runtime, IPC endpoint, database and capability contract. Adapter section is static text: harness detection is not implemented. |
 | KPL-007 | Done | SQLite WAL + FTS5, versioned migrations, single writer, privacy defaults, redaction, sensitive path denylist. Memory write/search APIs exist but nothing calls them yet (Delivery 1). |
 | KPL-008 | Partial | `adapters/pi`: TypeScript IPC client (ADR-0007) and an observe-only `input` hook with passthrough on any failure, tested against a mock core on Linux/Windows CI. **Not verified end to end with a real Pi session**; no transformation, no core launch, private package. |
-| KPL-009..KPL-020 | Not started | Except KPL-017 (scaffold existed before this delivery); publishing stays disabled. |
+| KPL-009 | Done (library) | `kepler-forge`: deterministic classifier with passthrough/enrich/compile/decompose, original kept byte for byte, labeled claims. Wired into the daemon in a later commit of Delivery 1 (see status below). |
+| KPL-010 | Done (library) | `kepler-forge::spec`: derived spec; user-stated claims only constructible from verbatim quotes, inferences cannot be promoted ([ADR-0009](../decisions/0009-module-pipeline-and-forge.md)). Heuristics not evaluated on real prompts. |
+| KPL-011..KPL-020 | Not started | Except KPL-017 (scaffold existed before this delivery); publishing stays disabled. |

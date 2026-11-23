@@ -12,3 +12,4 @@ Status of all records below: **proposed for implementation**. These capture the 
 - [ADR-0008: Delivery 0 runtime dependencies (SQLite binding, Tokio, serde, clap)](0008-storage-dependencies.md)
 
 New ADR format: Context, Decision, Consequences, Alternatives, Status.
+- [ADR-0009: Module pipeline, derived-context labels and Forge](0009-module-pipeline-and-forge.md) (implemented in `kepler-policy`, `kepler-forge`)
