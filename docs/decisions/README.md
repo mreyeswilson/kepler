@@ -18,3 +18,4 @@ New ADR format: Context, Decision, Consequences, Alternatives, Status.
 - [ADR-0012: MCP stdio server implemented in-tree](0012-mcp-stdio-minimal-server.md) (implemented in `kepler-mcp`)
 - [ADR-0013: Pi automatic hooks](0013-pi-automatic-hooks.md) (implemented in `adapters/pi`)
 - [ADR-0014: Focus implementation](0014-focus-implementation.md) (implemented in `kepler-focus`)
+- [ADR-0015: Sentinel and audit findings](0015-sentinel-and-findings.md) (implemented in `kepler-sentinel`, `kepler-git`)

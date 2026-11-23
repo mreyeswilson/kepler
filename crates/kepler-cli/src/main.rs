@@ -5,6 +5,7 @@ mod detach;
 mod inspect;
 mod mcp_cmd;
 mod memory_cmd;
+mod sentinel_cmd;
 
 use clap::{Parser, Subcommand};
 use kepler_core::emit::emit_in_process;
@@ -84,6 +85,11 @@ enum Command {
         #[command(subcommand)]
         cmd: memory_cmd::MemoryCmd,
     },
+    /// Deterministic audit of code changes (no model calls; reads git diff only).
+    Sentinel {
+        #[command(subcommand)]
+        cmd: sentinel_cmd::SentinelCmd,
+    },
     /// Print version information.
     Version {
         #[arg(long)]
@@ -114,6 +120,7 @@ fn main() -> ExitCode {
             emit(&raw, no_autostart, in_process)
         }
         Command::Memory { cmd } => memory_cmd::run(cmd),
+        Command::Sentinel { cmd } => sentinel_cmd::run(cmd),
         Command::Mcp { cmd: McpCmd::Serve } => mcp_cmd::serve(),
         Command::Inspect { limit } => match inspect::inspect_value(limit) {
             Ok(v) => {

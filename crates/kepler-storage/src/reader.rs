@@ -44,6 +44,14 @@ impl Reader {
         Ok(Self { conn })
     }
 
+    /// Audit findings (Sentinel/Vision), newest first.
+    pub fn findings(
+        &self,
+        filter: &crate::FindingFilter,
+    ) -> Result<Vec<crate::FindingRow>, StorageError> {
+        crate::list_findings(&self.conn, filter)
+    }
+
     pub fn event_count(&self) -> Result<i64, StorageError> {
         Ok(self
             .conn

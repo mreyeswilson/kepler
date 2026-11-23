@@ -9,6 +9,7 @@ use kepler_focus::{FocusConfig, FocusModule};
 use kepler_forge::ForgeModule;
 use kepler_memory::{MemoryConfig, MemoryModule, MemoryService};
 use kepler_policy::{BudgetStage, Guardian, GuardianRules, PolicyEngine};
+use kepler_sentinel::SentinelModule;
 use kepler_storage::Writer;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -22,6 +23,8 @@ pub struct PipelineConfig {
     pub forge: bool,
     /// Focus supervision advisories (ADR-0014). Optional, fail-safe, never blocks.
     pub focus: bool,
+    /// Sentinel path audit on `files.changed` (needs the database; ADR-0015).
+    pub sentinel: bool,
     pub focus_config: FocusConfig,
     pub memory: bool,
     /// Context budget stage. The security preflight is always on and cannot be disabled.
@@ -37,6 +40,7 @@ impl Default for PipelineConfig {
         Self {
             forge: true,
             focus: true,
+            sentinel: true,
             focus_config: FocusConfig::default(),
             memory: true,
             guardian_budget: true,
@@ -63,6 +67,7 @@ impl PipelineConfig {
         Self {
             forge: !off("KEPLER_FORGE"),
             focus: !off("KEPLER_FOCUS"),
+            sentinel: !off("KEPLER_SENTINEL"),
             focus_config: FocusConfig::from_env(),
             memory: !memory_config.force_disabled,
             guardian_budget: !off("KEPLER_GUARDIAN_BUDGET"),
@@ -116,6 +121,11 @@ pub fn build_engine(cfg: &PipelineConfig, storage: MemoryStorage) -> PolicyEngin
     if cfg.forge {
         engine.register(Box::new(ForgeModule));
     }
+    if cfg.sentinel {
+        if let Some((writer, _)) = &storage {
+            engine.register(Box::new(SentinelModule::new(writer.clone())));
+        }
+    }
     if cfg.memory {
         if let Some((writer, path)) = storage {
             let service = Arc::new(MemoryService::new(writer, path, cfg.memory_config.clone()));
@@ -143,12 +153,16 @@ mod tests {
         let path = d.join("k.db");
         let w = Arc::new(Writer::start(&path, Default::default()).unwrap());
         let e = build_engine(&PipelineConfig::default(), Some((w.clone(), path.clone())));
-        assert_eq!(e.pipeline(), vec!["forge", "memory", "focus", "guardian"]);
+        assert_eq!(
+            e.pipeline(),
+            vec!["forge", "sentinel", "memory", "focus", "guardian"]
+        );
         let e = build_engine(&PipelineConfig::default(), None);
         assert_eq!(e.pipeline(), vec!["forge", "focus", "guardian"]);
         let cfg = PipelineConfig {
             forge: false,
             focus: false,
+            sentinel: false,
             memory: false,
             guardian_budget: false,
             ..PipelineConfig::default()

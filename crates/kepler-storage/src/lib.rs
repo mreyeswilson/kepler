@@ -8,6 +8,7 @@
 
 pub mod dirs;
 mod error;
+mod findings;
 mod memory;
 mod migrations;
 mod reader;
@@ -19,6 +20,10 @@ pub mod redact {
 mod writer;
 
 pub use error::StorageError;
+pub use findings::{
+    dismiss_finding, list_findings, store_findings, Confidence, FindingFilter, FindingRow,
+    NewFinding, Severity, MAX_FINDINGS_PER_PROJECT,
+};
 pub use kepler_policy::sensitive::{is_sensitive_path, resolve_within, PathError};
 pub use memory::{
     apply_retention, content_hash, fts_query, jaccard, mark_used, purge_memories, record_metric,

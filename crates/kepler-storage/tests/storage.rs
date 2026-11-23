@@ -18,6 +18,7 @@ fn tmp_dir() -> PathBuf {
         std::process::id(),
         N.fetch_add(1, Ordering::SeqCst)
     ));
+    let _ = std::fs::remove_dir_all(&p);
     std::fs::create_dir_all(&p).unwrap();
     p
 }

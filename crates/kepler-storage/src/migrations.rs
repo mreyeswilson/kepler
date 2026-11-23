@@ -122,6 +122,31 @@ CREATE TABLE context_metrics (
 CREATE INDEX context_metrics_session ON context_metrics (session_id, id);
 "#,
     ),
+    (
+        3,
+        "audit_findings",
+        r#"
+-- Sentinel / Vision results. Evidence is a short redacted excerpt; secret rules store only the kind.
+CREATE TABLE audit_findings (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    project_id  TEXT NOT NULL,
+    session_id  TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL,
+    rule_id     TEXT NOT NULL,
+    severity    TEXT NOT NULL CHECK (severity IN ('info', 'low', 'medium', 'high', 'critical')),
+    confidence  TEXT NOT NULL CHECK (confidence IN ('confirmed', 'suspected')),
+    path        TEXT NOT NULL DEFAULT '',
+    line        INTEGER,
+    message     TEXT NOT NULL,
+    evidence    TEXT NOT NULL DEFAULT '',
+    fingerprint TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'dismissed')),
+    UNIQUE (project_id, fingerprint)
+);
+CREATE INDEX audit_findings_project ON audit_findings (project_id, status, id);
+"#,
+    ),
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].0;

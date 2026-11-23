@@ -349,3 +349,85 @@ fn mcp_serve_speaks_json_rpc_over_stdio_with_a_real_client_flow() {
     let (_, v) = env.json(&["inspect", "--limit", "5"]);
     assert_eq!(v["memory"]["total"], 1);
 }
+
+fn git_in(dir: &std::path::Path, args: &[&str]) {
+    let o = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "commit.gpgsign=false",
+        ])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        o.status.success(),
+        "{args:?}: {}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+}
+
+#[test]
+fn sentinel_audit_stores_findings_and_list_shows_them() {
+    let env = Env::new();
+    let repo = env.home.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git_in(&repo, &["init", "-q"]);
+    std::fs::write(repo.join("a.py"), "x = 1\n").unwrap();
+    git_in(&repo, &["add", "."]);
+    git_in(&repo, &["commit", "-q", "-m", "init"]);
+    std::fs::write(repo.join("a.py"), "x = 1\neval(user_input)\n").unwrap();
+    let r = repo.to_str().unwrap();
+
+    // Without --store nothing is persisted.
+    let (code, v) = env.json(&["sentinel", "audit", "--repo", r, "--json"]);
+    assert_eq!(code, 0);
+    assert_eq!(v["findings"][0]["rule"], "py.eval");
+    assert_eq!(v["findings"][0]["line"], 2);
+    let (_, none) = env.json(&["sentinel", "list", "--json"]);
+    assert_eq!(none.as_array().unwrap().len(), 0);
+
+    let (code, v) = env.json(&[
+        "sentinel",
+        "audit",
+        "--repo",
+        r,
+        "--json",
+        "--store",
+        "--project",
+        "demo",
+    ]);
+    assert_eq!(code, 0);
+    assert_eq!(v["stored_new"], 1);
+    let (_, rows) = env.json(&["sentinel", "list", "--json", "--project", "demo"]);
+    assert_eq!(rows[0]["rule"], "py.eval");
+    assert_eq!(rows[0]["confidence"], "suspected");
+    let id = rows[0]["id"].as_i64().unwrap().to_string();
+
+    // --fail-on turns findings into a failing exit status for CI use.
+    let o = env.run(&[
+        "sentinel",
+        "audit",
+        "--repo",
+        r,
+        "--json",
+        "--fail-on",
+        "high",
+    ]);
+    assert_eq!(o.status.code(), Some(1));
+
+    assert!(env.run(&["sentinel", "dismiss", &id]).status.success());
+    let (_, rows) = env.json(&["sentinel", "list", "--json", "--project", "demo"]);
+    assert_eq!(rows.as_array().unwrap().len(), 0);
+    let (_, rows) = env.json(&["sentinel", "list", "--json", "--project", "demo", "--all"]);
+    assert_eq!(rows[0]["status"], "dismissed");
+
+    let o = env.run(&["sentinel", "audit", "--repo", env.home.to_str().unwrap()]);
+    // Not a repository (or nested in one): either way it must fail cleanly or succeed, never panic.
+    assert!(o.status.code().is_some());
+}

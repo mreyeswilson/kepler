@@ -357,3 +357,47 @@ async fn focus_advisories_travel_with_the_verdict_and_can_be_disabled() {
         let _ = r.task.await;
     }
 }
+
+#[tokio::test]
+async fn sentinel_persists_path_findings_and_advises_on_serious_ones() {
+    let r = start();
+    let mut c = client(&r.ep).await;
+    let v = c
+        .send_event_value(event(
+            "f1",
+            "ss",
+            "files.changed",
+            json!({"paths": [".env", "src/lib.rs", ".github/workflows/ci.yml"]}),
+        ))
+        .await
+        .unwrap();
+    assert!(v.decision.is_passthrough());
+    assert!(v
+        .advisories
+        .iter()
+        .any(|a| a.code == "audit.high_severity_path"));
+    let reader = kepler_storage::Reader::open(&r.db).unwrap();
+    let start = Instant::now();
+    let rows = loop {
+        let rows = reader
+            .findings(&kepler_storage::FindingFilter {
+                limit: 20,
+                ..Default::default()
+            })
+            .unwrap();
+        if rows.len() >= 2 || start.elapsed() > Duration::from_secs(5) {
+            break rows;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    let rules: Vec<&str> = rows.iter().map(|r| r.rule_id.as_str()).collect();
+    assert!(
+        rules.contains(&"path.sensitive") && rules.contains(&"path.ci_workflow"),
+        "{rules:?}"
+    );
+    assert!(rows
+        .iter()
+        .all(|r| r.source == "sentinel" && r.project_id == "proj"));
+    let _ = r.stop.send(());
+    let _ = r.task.await;
+}
