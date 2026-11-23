@@ -52,6 +52,16 @@ impl Reader {
         crate::list_findings(&self.conn, filter)
     }
 
+    /// Orbit runs, newest first (read-only view for the UI and tooling).
+    pub fn orbit_runs(&self, limit: u32) -> Result<Vec<crate::RunRow>, StorageError> {
+        crate::list_runs(&self.conn, limit)
+    }
+
+    /// Tasks of one Orbit run, with dependencies.
+    pub fn orbit_tasks(&self, run_id: &str) -> Result<Vec<crate::TaskRow>, StorageError> {
+        crate::load_tasks(&self.conn, run_id)
+    }
+
     pub fn event_count(&self) -> Result<i64, StorageError> {
         Ok(self
             .conn

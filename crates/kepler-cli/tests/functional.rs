@@ -178,3 +178,66 @@ fn sentinel_check_timeout_kills_the_command() {
     assert_eq!(v["checks"][0]["status"], "timed_out", "{v}");
     assert_eq!(o.status.code(), Some(1));
 }
+
+fn http(port: u16, req: &str) -> (u16, String) {
+    use std::io::{Read, Write};
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    s.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        .unwrap();
+    s.write_all(req.as_bytes()).unwrap();
+    let mut buf = String::new();
+    let _ = s.read_to_string(&mut buf);
+    let status = buf.split_whitespace().nth(1).unwrap().parse().unwrap();
+    (status, buf)
+}
+
+#[test]
+fn ui_serves_real_data_from_the_binary_with_token_and_host_checks() {
+    use std::io::BufRead;
+    let env = Env::new();
+    // Real data: a memory recorded through the CLI.
+    let o = env.run(&["memory", "add", "--project", "p", "the ui test fact"]);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let mut child = env
+        .cmd(&["ui", "--json"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let mut line = String::new();
+    std::io::BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut line)
+        .unwrap();
+    let v: Value = serde_json::from_str(&line).unwrap();
+    let port = v["port"].as_u64().unwrap() as u16;
+    let token = v["token"].as_str().unwrap().to_string();
+    assert!(v["url"].as_str().unwrap().starts_with("http://127.0.0.1:"));
+    assert_eq!(v["actions"], false);
+
+    let host = format!("127.0.0.1:{port}");
+    let (s, _) = http(
+        port,
+        &format!("GET /api/memories HTTP/1.1\r\nHost: {host}\r\n\r\n"),
+    );
+    assert_eq!(s, 401, "no token");
+    let (s, _) = http(
+        port,
+        &format!("GET /api/memories HTTP/1.1\r\nHost: evil.example\r\nAuthorization: Bearer {token}\r\n\r\n"),
+    );
+    assert_eq!(s, 421, "rebinding host");
+    let (s, body) = http(
+        port,
+        &format!(
+            "GET /api/memories HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\n\r\n"
+        ),
+    );
+    assert_eq!(s, 200);
+    assert!(body.contains("the ui test fact"), "{body}");
+    let (s, _) = http(
+        port,
+        &format!("POST /api/orbit/resolve HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n{{}}"),
+    );
+    assert_eq!(s, 403, "actions are off unless --allow-actions");
+    let _ = child.kill();
+    let _ = child.wait();
+}

@@ -7,6 +7,7 @@ mod mcp_cmd;
 mod memory_cmd;
 mod orbit_cmd;
 mod sentinel_cmd;
+mod ui_cmd;
 mod vision_cmd;
 
 use clap::{Parser, Subcommand};
@@ -102,6 +103,8 @@ enum Command {
         #[command(subcommand)]
         cmd: orbit_cmd::OrbitCmd,
     },
+    /// Local read-only dashboard on 127.0.0.1 (random port, session token in the URL).
+    Ui(ui_cmd::UiArgs),
     /// Print version information.
     Version {
         #[arg(long)]
@@ -135,6 +138,7 @@ fn main() -> ExitCode {
         Command::Sentinel { cmd } => sentinel_cmd::run(cmd),
         Command::Vision { cmd } => vision_cmd::run(cmd),
         Command::Orbit { cmd } => orbit_cmd::run(cmd),
+        Command::Ui(args) => ui_cmd::run(args),
         Command::Mcp { cmd: McpCmd::Serve } => mcp_cmd::serve(),
         Command::Inspect { limit } => match inspect::inspect_value(limit) {
             Ok(v) => {
