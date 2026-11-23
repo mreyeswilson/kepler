@@ -83,6 +83,8 @@ struct Pending {
     text: String,
     category: Option<String>,
     reference: String,
+    /// Branch-scoped candidate (key = branch name); project scope otherwise.
+    branch_scope: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -249,6 +251,19 @@ impl MemoryService {
         category: Option<&str>,
         reference: &str,
     ) -> bool {
+        self.queue_scoped(ctx, text, category, reference, false)
+    }
+
+    /// Like [`Self::queue_candidate`]; with `branch_scope` the memory is only recalled on
+    /// `ctx.branch` (ignored, and project scope used, when the branch is unknown).
+    pub fn queue_scoped(
+        &self,
+        ctx: &Ctx,
+        text: &str,
+        category: Option<&str>,
+        reference: &str,
+        branch_scope: bool,
+    ) -> bool {
         // Reject early (and never hold unredacted secrets in RAM longer than needed).
         let probe = NewMemory::new(&ctx.project_id, text, "derived");
         let Ok(clean) = probe.sanitize() else {
@@ -284,6 +299,7 @@ impl MemoryService {
             text: clean,
             category: category.map(str::to_string),
             reference: reference.to_string(),
+            branch_scope: branch_scope && ctx.branch.is_some(),
         });
         true
     }
@@ -305,6 +321,12 @@ impl MemoryService {
             let mut m = NewMemory::new(&ctx.project_id, &p.text, "derived");
             m.trust = TRUST_DERIVED;
             m.category = p.category;
+            if p.branch_scope {
+                if let Some(b) = &ctx.branch {
+                    m.scope = kepler_storage::Scope::Branch;
+                    m.scope_key = b.clone();
+                }
+            }
             m.source_kind = "settlement".into();
             m.reference = if p.reference.is_empty() {
                 reference.to_string()
