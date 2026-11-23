@@ -18,6 +18,10 @@
 #   KEPLER_REPO         GitHub repository owner/name (default: mreyeswilson/kepler)
 #   KEPLER_BASE_URL     override of the release download base URL (https:// or file://).
 #                       Intended for tests and mirrors; checksums are still verified.
+#   KEPLER_GITHUB_TOKEN token for private repos (also GH_TOKEN, GITHUB_TOKEN, or `gh auth token`).
+#                       With a token, assets come from the GitHub API (api.github.com, HTTPS only; the
+#                       token is never printed or stored). Ignored when KEPLER_BASE_URL is set.
+#   KEPLER_API_URL      API base override (https://api.github.com or file://; tests only)
 #   KEPLER_OS/KEPLER_ARCH  override `uname -s` / `uname -m` (testing only)
 
 set -eu
@@ -74,6 +78,63 @@ sha256_of() { # sha256_of FILE -> hex digest
     openssl dgst -sha256 "$1" | sed 's/^.*= *//'
   else
     die "no SHA-256 tool found (need sha256sum, shasum or openssl)"
+  fi
+}
+
+# --- Optional GitHub token (private repos) -------------------------------------------------------
+# With a token, assets are downloaded through the GitHub API; without one, the public URLs are used.
+# The token is only ever sent to https://api.github.com, via curl's stdin config (never in argv),
+# and is never printed or stored.
+API="${KEPLER_API_URL:-https://api.github.com}"
+TOKEN=""
+
+resolve_token() {
+  TOKEN="${KEPLER_GITHUB_TOKEN:-${GH_TOKEN:-${GITHUB_TOKEN:-}}}"
+  if [ -z "$TOKEN" ] && have gh; then
+    TOKEN="$(gh auth token 2>/dev/null || true)"
+  fi
+  TOKEN="$(printf '%s' "$TOKEN" | tr -d '[:space:]')"
+  case "$TOKEN" in
+    *[!A-Za-z0-9_.-]*) die "the GitHub token contains unexpected characters; refusing to use it" ;;
+  esac
+}
+
+# api_fetch URL DEST ACCEPT : GET from the API base only; Authorization only for https://api.github.com
+api_fetch() {
+  case "$1" in
+    "$API"/*) ;;
+    *) die "refusing to fetch outside the API base: $1" ;;
+  esac
+  have curl || die "curl is required to use a GitHub token"
+  case "$1" in
+    https://api.github.com/*)
+      printf 'header = "Authorization: Bearer %s"\n' "$TOKEN" |
+        curl -fsSL --proto '=https' --tlsv1.2 --retry 2 -K - -H "Accept: $3" -H 'X-GitHub-Api-Version: 2022-11-28' -o "$2" "$1"
+      ;;
+    file://*) curl -fsSL -o "$2" "$1" ;;
+    *) die "refusing non-HTTPS API URL: $1" ;;
+  esac
+}
+
+# asset_url NAME : print the API URL of release asset NAME from the release JSON in $tmp/release.json
+asset_url() {
+  awk -v want="$1" 'BEGIN { RS = "," }
+    { if (match($0, /"url" *: *"[^"]*\/releases\/assets\/[0-9]+"/)) {
+        u = substr($0, RSTART, RLENGTH); sub(/^"url" *: *"/, "", u); sub(/"$/, "", u); url = u; next }
+      if (url != "" && match($0, /"name" *: *"[^"]*"/)) {
+        n = substr($0, RSTART, RLENGTH); sub(/^"name" *: *"/, "", n); sub(/"$/, "", n)
+        if (n == want) { print url; exit }
+        url = "" } }' "$tmp/release.json"
+}
+
+# get_asset NAME DEST : download release asset NAME (API mode) or "$base/NAME" (public mode)
+get_asset() {
+  if [ -n "$TOKEN" ]; then
+    u="$(asset_url "$1")"
+    [ -n "$u" ] || return 1
+    api_fetch "$u" "$2" "application/octet-stream"
+  else
+    fetch "$base/$1" "$2"
   fi
 }
 
@@ -155,8 +216,19 @@ install_main() {
   trap 'rm -rf "$tmp"' EXIT INT TERM HUP
 
   say "Detected target: $TARGET"
-  say "Downloading SHA256SUMS from $base"
-  fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS" || die "could not download SHA256SUMS (does the release exist?)"
+  if [ -z "${KEPLER_BASE_URL:-}" ]; then resolve_token; fi
+  if [ -n "$TOKEN" ]; then
+    case "$API" in
+      https://api.github.com | file://*) API="${API%/}" ;;
+      *) die "KEPLER_API_URL must be https://api.github.com (or file:// for tests)" ;;
+    esac
+    if [ -n "$version" ]; then rel_url="$API/repos/${REPO}/releases/tags/v${version}"; else rel_url="$API/repos/${REPO}/releases/latest"; fi
+    say "Using a GitHub token: downloading through the GitHub API ($API)"
+    api_fetch "$rel_url" "$tmp/release.json" "application/vnd.github+json" || die "could not read the release metadata (does the release exist, and can the token read the repo?)"
+  else
+    say "Downloading SHA256SUMS from $base"
+  fi
+  get_asset SHA256SUMS "$tmp/SHA256SUMS" || die "could not download SHA256SUMS (does the release exist?)"
 
   # Lines look like "<sha256>  kepler-<version>-<target>.tar.gz"
   if [ -n "$version" ]; then
@@ -173,7 +245,7 @@ install_main() {
   [ "${#expected}" -eq 64 ] || die "malformed checksum for $archive"
 
   say "Downloading $archive"
-  fetch "$base/$archive" "$tmp/$archive" || die "could not download $archive"
+  get_asset "$archive" "$tmp/$archive" || die "could not download $archive"
 
   actual="$(sha256_of "$tmp/$archive")"
   expected_lc="$(printf '%s' "$expected" | tr 'A-F' 'a-f')"

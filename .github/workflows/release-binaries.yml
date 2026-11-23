@@ -95,7 +95,7 @@ jobs:
 
           Verify a download:
           - checksums: \`sha256sum --check --ignore-missing SHA256SUMS\`
-          - provenance: \`gh attestation verify <archive> --repo ${REPO}\`
+          - provenance (only if the release was built from a non-private repository): \`gh attestation verify <archive> --repo ${REPO}\`
 
           Binaries are not code-signed or notarized (macOS Gatekeeper / Windows SmartScreen may warn); integrity
           is provided by SHA256SUMS and the build-provenance attestation. License: MIT.
@@ -170,8 +170,13 @@ jobs:
           fi
           cat "dist/$file.sha256"
           echo "file=dist/$file" >> "$GITHUB_OUTPUT"
+      # Attestations are not available for user-owned private repositories: attest only when the repo
+      # is not private (the push payload carries repository.private). Upload/publish never depend on it.
+      - name: Provenance attestation skipped (private repository)
+        if: needs.preflight.outputs.is_release == 'true' && github.event.repository.private == true
+        run: echo "::notice::Build-provenance attestation skipped - GitHub does not offer attestations for user-owned private repositories. Integrity is still covered by SHA256SUMS."
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        if: needs.preflight.outputs.is_release == 'true'
+        if: needs.preflight.outputs.is_release == 'true' && github.event.repository.private == false
         with:
           subject-path: ${{ steps.pkg.outputs.file }}
       - name: Upload package to the draft release
@@ -212,7 +217,11 @@ jobs:
           cat kepler-*.sha256 | LC_ALL=C sort -k2 > SHA256SUMS
           test "$(wc -l < SHA256SUMS)" -eq 5
           cat SHA256SUMS
+      - name: Provenance attestation skipped (private repository)
+        if: github.event.repository.private == true
+        run: echo "::notice::Build-provenance attestation skipped - GitHub does not offer attestations for user-owned private repositories. Integrity is still covered by SHA256SUMS."
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: github.event.repository.private == false
         with:
           subject-path: dist/SHA256SUMS
       - name: Upload SHA256SUMS, drop the per-file checksums and publish

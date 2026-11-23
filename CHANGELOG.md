@@ -7,6 +7,12 @@ packages exist. License: MIT. Everything below is on branch `feat/rust-core-d0` 
 ## [Unreleased]
 
 ### Added
+- **Private-repo testing**: `install.sh`/`install.ps1` accept an optional GitHub token (`KEPLER_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token`) and then download assets through the GitHub API (`Authorization` only to `https://api.github.com`, never printed or stored; SHA-256 still mandatory). Tests in `tests/installers/`; README section "Probar con el repo privado".
+
+### Fixed
+- **Release workflow**: `actions/attest-build-provenance` now runs only when the repository is not private (unsupported for user-owned private repos, which failed every build); a `::notice::` explains the skip. Upload and publish do not depend on attestation, and `gh attestation verify` only applies to releases built from a non-private repo.
+
+### Added (earlier)
 - **License MIT** (`LICENSE`, 2026, Wilson Mendoza): workspace and package manifests, `deny.toml` and docs updated; the npm release guard no longer blocks on the license (still blocks on `private`, version `0.0.0`, tests, tag and confirmation) and now has tests. Crates stay `publish = false`; `adapters/pi` and `workers/vision` stay `private: true`.
 - **Release by tag**: `release-binaries.yml` creates a draft GitHub Release in preflight, uploads each package directly with `gh release upload` (no upload/download-artifact) and un-drafts it after `SHA256SUMS` is added; environment `release`; archives include `LICENSE` and `README.md`.
 - **Installers** `install.sh` (Linux/macOS) and `install.ps1` (Windows): HTTPS only, SHA-256 verified against `SHA256SUMS`, no sudo/admin, no telemetry, uninstall; local tests in `tests/installers/` and CI workflow `installers.yml`.

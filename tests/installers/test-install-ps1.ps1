@@ -32,7 +32,7 @@ function Invoke-Installer([string]$base, [string]$dir, [hashtable]$envs = @{}, [
     $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $installer) + $more
     $psi.Arguments = ($argList | ForEach-Object { '"' + $_ + '"' }) -join ' '
     $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
-    $psi.EnvironmentVariables['KEPLER_BASE_URL'] = $base
+    if ($base) { $psi.EnvironmentVariables['KEPLER_BASE_URL'] = $base }
     $psi.EnvironmentVariables['KEPLER_INSTALL_DIR'] = $dir
     foreach ($k in $envs.Keys) { $psi.EnvironmentVariables[$k] = $envs[$k] }
     $p = [Diagnostics.Process]::Start($psi)
@@ -81,6 +81,60 @@ try {
     if ($r.Code -eq 0 -and $r.Out -match 'Kepler installer') { Ok '-Help' } else { Ko "-Help: $($r.Out)" }
     $r = Invoke-Installer $url $d1 @{ KEPLER_NO_MODIFY_PATH = '1' } @('-Uninstall')
     if ($r.Code -eq 0 -and -not (Test-Path "$d1\kepler.exe")) { Ok '-Uninstall removes binary' } else { Ko "-Uninstall: $($r.Out)" }
+
+    # 8. token mode: assets via a simulated GitHub API (file:// API base; no KEPLER_BASE_URL)
+    function New-FakeApi([string]$apiDir, [string]$relDir, [string]$skip = '') {
+        $ru = ([Uri]$apiDir).AbsoluteUri.TrimEnd('/')
+        $rr = Join-Path $apiDir 'repos\mreyeswilson\kepler\releases'
+        New-Item -ItemType Directory -Path (Join-Path $rr 'tags'), (Join-Path $rr 'assets') -Force | Out-Null
+        $assets = @(); $id = 100
+        foreach ($f in Get-ChildItem $relDir -File) {
+            $id++
+            if ($f.Name -eq $skip) { continue }
+            Copy-Item $f.FullName (Join-Path $rr "assets\$id")
+            $assets += @{ url = "$ru/repos/mreyeswilson/kepler/releases/assets/$id"; id = $id; name = $f.Name }
+        }
+        $json = @{ tag_name = 'v9.9.9'; assets = $assets } | ConvertTo-Json -Depth 5
+        [IO.File]::WriteAllText((Join-Path $rr 'latest'), $json)
+        [IO.File]::WriteAllText((Join-Path $rr 'tags\v9.9.9'), $json)
+        $ru
+    }
+    function Invoke-TokenInstaller([string]$apiUrl, [string]$dir, [hashtable]$envs = @{}, [string[]]$more = @()) {
+        $e = @{ KEPLER_API_URL = $apiUrl; KEPLER_GITHUB_TOKEN = 'ghp_TESTTOKEN123' }
+        foreach ($k in $envs.Keys) { $e[$k] = $envs[$k] }
+        Invoke-Installer '' $dir $e $more
+    }
+    $apiUrl = New-FakeApi (Join-Path $work 'api') $rel
+    $d8 = Join-Path $work 'i8'
+    $r = Invoke-TokenInstaller $apiUrl $d8
+    if ($r.Code -eq 0 -and (Test-Path "$d8\kepler.exe") -and $r.Out -match 'GitHub API' -and $r.Out -match 'SHA-256 verified') { Ok 'token: latest via API installs' } else { Ko "token latest: $($r.Out)" }
+    if ($r.Out -notmatch 'ghp_TESTTOKEN123') { Ok 'token never printed' } else { Ko 'token printed' }
+    $d8b = Join-Path $work 'i8b'
+    $r = Invoke-TokenInstaller $apiUrl $d8b @{} @('-Version', '9.9.9')
+    if ($r.Code -eq 0 -and (Test-Path "$d8b\kepler.exe")) { Ok 'token: -Version via API' } else { Ko "token -Version: $($r.Out)" }
+    $d8c = Join-Path $work 'i8c'
+    $r = Invoke-TokenInstaller $apiUrl $d8c @{ KEPLER_GITHUB_TOKEN = ''; GH_TOKEN = 'ghp_OTHER' }
+    if ($r.Code -eq 0 -and (Test-Path "$d8c\kepler.exe")) { Ok 'token: GH_TOKEN accepted' } else { Ko "GH_TOKEN: $($r.Out)" }
+    # checksum still mandatory in token mode
+    $badRel = Join-Path $work 'badrel'; Copy-Item $rel $badRel -Recurse
+    Add-Content -LiteralPath (Join-Path $badRel "$stem.zip") -Value 'junk'
+    $apiBad = New-FakeApi (Join-Path $work 'apibad') $badRel
+    $d8d = Join-Path $work 'i8d'
+    $r = Invoke-TokenInstaller $apiBad $d8d
+    if ($r.Code -ne 0 -and -not (Test-Path "$d8d\kepler.exe") -and $r.Out -match 'mismatch') { Ok 'token: tampered archive fails' } else { Ko "token tampered: $($r.Out)" }
+    # missing asset
+    $apiMiss = New-FakeApi (Join-Path $work 'apimiss') $rel 'SHA256SUMS'
+    $d8e = Join-Path $work 'i8e'
+    $r = Invoke-TokenInstaller $apiMiss $d8e
+    if ($r.Code -ne 0 -and -not (Test-Path "$d8e\kepler.exe") -and $r.Out -match 'no asset named SHA256SUMS') { Ok 'token: missing SHA256SUMS asset fails' } else { Ko "token missing asset: $($r.Out)" }
+    # a non-GitHub https API base is refused
+    $d8f = Join-Path $work 'i8f'
+    $r = Invoke-TokenInstaller 'https://evil.invalid' $d8f
+    if ($r.Code -ne 0 -and $r.Out -match 'KEPLER_API_URL must be') { Ok 'token: foreign API host refused' } else { Ko "foreign API: $($r.Out)" }
+    # KEPLER_BASE_URL set => token ignored (public path)
+    $d8g = Join-Path $work 'i8g'
+    $r = Invoke-Installer $url $d8g @{ KEPLER_GITHUB_TOKEN = 'ghp_T' }
+    if ($r.Code -eq 0 -and $r.Out -notmatch 'GitHub API') { Ok 'token ignored with KEPLER_BASE_URL' } else { Ko "base url + token: $($r.Out)" }
 } finally {
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }

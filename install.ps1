@@ -19,6 +19,10 @@
 #   KEPLER_REPO            GitHub owner/name (default: mreyeswilson/kepler)
 #   KEPLER_BASE_URL        override of the release download base URL (https:// or file://);
 #                          for tests and mirrors. Checksums are still verified.
+#   KEPLER_GITHUB_TOKEN    token for private repos (also GH_TOKEN, GITHUB_TOKEN, or `gh auth token`). With a
+#                          token, assets come from the GitHub API (api.github.com, HTTPS only; the token is
+#                          never printed or stored). Ignored when KEPLER_BASE_URL is set.
+#   KEPLER_API_URL         API base override (https://api.github.com or file://; tests only)
 #   KEPLER_ARCH            override of the detected architecture (testing only)
 # When run as a file you can also pass: -Help  -Uninstall  -Version X.Y.Z  -Dir <path>
 
@@ -123,13 +127,79 @@ The SHA-256 of the downloaded zip is always verified against the release SHA256S
         }
     }
 
+    # Optional GitHub token (private repos). Only sent to https://api.github.com; never printed or stored.
+    $token = $null
+    if (-not $env:KEPLER_BASE_URL) {
+        foreach ($n in 'KEPLER_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN') {
+            $v = [Environment]::GetEnvironmentVariable($n)
+            if ($v -and -not $token) { $token = $v }
+        }
+        if (-not $token -and (Get-Command gh -ErrorAction SilentlyContinue)) {
+            try { $token = (& gh auth token 2>$null | Select-Object -First 1) } catch { $token = $null }
+        }
+        if ($token) {
+            $token = ([string]$token) -replace '\s', ''
+            if ($token -notmatch '^[A-Za-z0-9_.-]+$') { throw 'the GitHub token contains unexpected characters; refusing to use it' }
+        }
+    }
+    $api = $env:KEPLER_API_URL
+    if (-not $api) { $api = 'https://api.github.com' }
+    $api = $api.TrimEnd('/')
+    $script:releaseJson = $null
+
+    function Get-Api([string]$url, [string]$dest, [string]$accept) {
+        if (-not $url.StartsWith("$api/")) { throw "refusing to fetch outside the API base: $url" }
+        if ($url -like 'file://*') {
+            Copy-Item -LiteralPath ([Uri]$url).LocalPath -Destination $dest
+        } elseif ($url -like 'https://api.github.com/*') {
+            $h = @{ Authorization = "Bearer $token"; Accept = $accept; 'X-GitHub-Api-Version' = '2022-11-28'; 'User-Agent' = 'kepler-install' }
+            # No automatic redirects: the Authorization header must never follow a redirect to another host.
+            $loc = $null
+            try {
+                Invoke-WebRequest -Uri $url -Headers $h -OutFile $dest -UseBasicParsing -MaximumRedirection 0 | Out-Null
+            } catch {
+                $resp = $_.Exception.Response
+                $code = 0; if ($resp) { $code = [int]$resp.StatusCode }
+                if ($code -ge 300 -and $code -lt 400) {
+                    $loc = [string]($resp.Headers['Location'])
+                    if (-not $loc -and $resp.Headers.Location) { $loc = [string]$resp.Headers.Location }
+                } else { throw }
+            }
+            if ($loc) {
+                if ($loc -notlike 'https://*') { throw 'refusing a non-HTTPS redirect' }
+                Invoke-WebRequest -Uri $loc -OutFile $dest -UseBasicParsing -MaximumRedirection 5 -Headers @{ Accept = 'application/octet-stream'; 'User-Agent' = 'kepler-install' }
+            }
+        } else {
+            throw "refusing non-HTTPS API URL: $url"
+        }
+    }
+
+    function Get-Asset([string]$name, [string]$dest) {
+        if ($token) {
+            $a = @($script:releaseJson.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1)
+            if ($a.Count -eq 0) { throw "release has no asset named $name" }
+            Get-Api ([string]$a[0].url) $dest 'application/octet-stream'
+        } else {
+            Get-Remote "$base/$name" $dest
+        }
+    }
+
     $tmp = Join-Path ([IO.Path]::GetTempPath()) ('kepler-install-' + [Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
         Write-Say "Detected target: $target"
-        Write-Say "Downloading SHA256SUMS from $base"
+        if ($token) {
+            if ($api -ne 'https://api.github.com' -and $api -notlike 'file://*') { throw 'KEPLER_API_URL must be https://api.github.com (or file:// for tests)' }
+            if ($version) { $relUrl = "$api/repos/$repo/releases/tags/v$version" } else { $relUrl = "$api/repos/$repo/releases/latest" }
+            Write-Say "Using a GitHub token: downloading through the GitHub API ($api)"
+            $rj = Join-Path $tmp 'release.json'
+            try { Get-Api $relUrl $rj 'application/vnd.github+json' } catch { throw "could not read the release metadata (does the release exist, and can the token read the repo?): $($_.Exception.Message)" }
+            $script:releaseJson = Get-Content -LiteralPath $rj -Raw | ConvertFrom-Json
+        } else {
+            Write-Say "Downloading SHA256SUMS from $base"
+        }
         $sums = Join-Path $tmp 'SHA256SUMS'
-        try { Get-Remote "$base/SHA256SUMS" $sums } catch { throw "could not download SHA256SUMS (does the release exist?): $($_.Exception.Message)" }
+        try { Get-Asset 'SHA256SUMS' $sums } catch { throw "could not download SHA256SUMS (does the release exist?): $($_.Exception.Message)" }
 
         # Lines look like "<sha256>  kepler-<version>-<target>.zip"
         $entries = @()
@@ -148,7 +218,7 @@ The SHA-256 of the downloaded zip is always verified against the release SHA256S
 
         Write-Say "Downloading $archive"
         $zip = Join-Path $tmp $archive
-        try { Get-Remote "$base/$archive" $zip } catch { throw "could not download ${archive}: $($_.Exception.Message)" }
+        try { Get-Asset $archive $zip } catch { throw "could not download ${archive}: $($_.Exception.Message)" }
 
         $actual = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($actual -ne $expected) {
