@@ -17,6 +17,7 @@ packages exist. License: MIT. Everything below is on branch `feat/rust-core-d0` 
 - The Vision worker environment lacked `ProgramFiles*`, which Playwright needs to find an installed Edge/Chrome.
 
 ### Added
+- **Claude Code adapter** (`kepler hook claude-code <Event>`, `--print-settings`, ADR-0025): Rust hooks for UserPromptSubmit, PreToolUse, PostToolUse, Stop, SessionStart and SessionEnd mapped to v1 events; Guardian deny/ask on PreToolUse, labeled derived context on prompts, secret warning on tool results; always exit 0, passthrough on any Kepler failure. Unit and e2e tests; run manually against Claude Code 2.1.330 on Windows only.
 - **Private-repo testing** (anonymous download first; token only if `KEPLER_GITHUB_TOKEN` is set or as a fallback after a 401/403/404): `install.sh`/`install.ps1` accept an optional GitHub token (`KEPLER_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token`) and then download assets through the GitHub API (`Authorization` only to `https://api.github.com`, never printed or stored; SHA-256 still mandatory). Tests in `tests/installers/`; README section "Probar con el repo privado".
 
 ### Fixed

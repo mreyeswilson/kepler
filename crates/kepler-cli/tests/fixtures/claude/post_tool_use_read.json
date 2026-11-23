@@ -1,0 +1,1 @@
+{"session_id":"abc123-DEF_456","transcript_path":"/home/dev/.claude/projects/x/t.jsonl","cwd":"/home/dev/proj","permission_mode":"default","hook_event_name":"PostToolUse","tool_name":"Read","tool_input":{"file_path":"/work/proj/a.txt"},"tool_response":{"type":"text","file":{"filePath":"/work/proj/a.txt","content":"line one","numLines":1}},"tool_use_id":"toolu_03"}

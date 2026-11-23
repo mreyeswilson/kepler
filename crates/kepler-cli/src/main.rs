@@ -2,6 +2,8 @@
 
 #[cfg(windows)]
 mod detach;
+mod hook_claude;
+mod hook_cmd;
 mod inspect;
 mod mcp_cmd;
 mod memory_cmd;
@@ -78,6 +80,11 @@ enum Command {
         #[arg(long, default_value_t = 20)]
         limit: u32,
     },
+    /// Harness hook adapters (Claude Code): stdin JSON in, hook output JSON out, never fatal.
+    Hook {
+        #[command(subcommand)]
+        cmd: hook_cmd::HookCmd,
+    },
     /// Model Context Protocol server.
     Mcp {
         #[command(subcommand)]
@@ -134,6 +141,7 @@ fn main() -> ExitCode {
             };
             emit(&raw, no_autostart, in_process)
         }
+        Command::Hook { cmd } => hook_cmd::run(cmd),
         Command::Memory { cmd } => memory_cmd::run(cmd),
         Command::Sentinel { cmd } => sentinel_cmd::run(cmd),
         Command::Vision { cmd } => vision_cmd::run(cmd),

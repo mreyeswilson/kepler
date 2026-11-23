@@ -28,3 +28,4 @@ New ADR format: Context, Decision, Consequences, Alternatives, Status.
 - [ADR-0022: Sentinel runs the project's own checks](0022-sentinel-project-checks.md) (implemented in `kepler-sentinel`)
 - [ADR-0023: Focus calibration, advisory display in Pi](0023-focus-calibration-and-advisory-display.md) (implemented in `kepler-focus`, `adapters/pi`)
 - [ADR-0024: Genesis local UI](0024-genesis-local-ui.md) (implemented in `kepler-ui`)
+- [ADR-0025: Claude Code hooks adapter (`kepler hook claude-code`)](0025-claude-code-hooks-adapter.md) (implemented in `kepler-cli`; tested with Claude Code 2.1.330 on Windows only)
