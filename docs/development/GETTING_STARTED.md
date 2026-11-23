@@ -1,7 +1,7 @@
 # Getting started (planned workflow)
 
 ## Current status
-A Pi npm **package scaffold** exists under `adapters/pi` (non-functional). The Rust workspace under `crates/` implements Delivery 0 (events, capabilities, policy, IPC, storage, daemon, `kepler doctor|daemon|emit|version`) with tests; there is **no hook integration, no installer and no published binary**. See the README status section and the [performance notes](PERFORMANCE.md).
+An experimental, observe-only **Pi adapter** exists under `adapters/pi` (IPC client + `input` hook, mock-core tests only, not verified with real Pi). The Rust workspace under `crates/` implements Delivery 0 (events, capabilities, policy, IPC, storage, daemon, `kepler doctor|daemon|emit|version`) with tests; there is **no hook integration, no installer and no published binary**. See the README status section and the [performance notes](PERFORMANCE.md).
 
 ## Prerequisites
 - Rust stable toolchain using rustup
@@ -17,9 +17,9 @@ A Pi npm **package scaffold** exists under `adapters/pi` (non-functional). The R
 5. Add privacy filters, SQLite and memory.
 6. Benchmark idle and event performance.
 
-## Pi package scaffold checks
+## Pi adapter checks
 
-From `adapters/pi`, run `npm pack --dry-run --json` to inspect the package contents. The manifest is intentionally marked private; do not publish it. See [distribution guide](../distribution/NPM_AND_PI.md).
+From `adapters/pi` (Node >= 22.18): `npm ci --ignore-scripts && npm run typecheck && npm run build && npm test`, then `npm pack --dry-run --json` to inspect the package contents. The manifest is intentionally marked private; do not publish it. See [distribution guide](../distribution/NPM_AND_PI.md).
 
 ## Development quality
 - Run `cargo fmt --check`, `cargo clippy --all-targets --all-features`, `cargo test --workspace` when project code exists.

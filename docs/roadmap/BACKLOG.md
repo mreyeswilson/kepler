@@ -56,5 +56,5 @@ Status is only "done" when code **and** tests exist. Measured performance is not
 | KPL-005 | Partial | Unix socket / named pipe with current-user isolation, handshake, limits, timeouts. No persistent reconnecting client: one-shot clients reconnect by lazily starting the daemon. Unix transport code is written but was not executed on Unix by the author (CI will). |
 | KPL-006 | Partial | `kepler doctor` reports runtime, IPC endpoint, database and capability contract. Adapter section is static text: harness detection is not implemented. |
 | KPL-007 | Done | SQLite WAL + FTS5, versioned migrations, single writer, privacy defaults, redaction, sensitive path denylist. Memory write/search APIs exist but nothing calls them yet (Delivery 1). |
-| KPL-008 | Not started | The Pi adapter does not send events. A TypeScript IPC client must implement ADR-0007. |
+| KPL-008 | Partial | `adapters/pi`: TypeScript IPC client (ADR-0007) and an observe-only `input` hook with passthrough on any failure, tested against a mock core on Linux/Windows CI. **Not verified end to end with a real Pi session**; no transformation, no core launch, private package. |
 | KPL-009..KPL-020 | Not started | Except KPL-017 (scaffold existed before this delivery); publishing stays disabled. |

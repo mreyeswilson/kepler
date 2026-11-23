@@ -1,39 +1,67 @@
-# Kepler Pi package — scaffold
+# Kepler Pi adapter (KPL-008) — observe-only, unverified against real Pi
 
-This directory is the future Pi Coding Agent distribution unit.
+> **Status: experimental, private, not published.** The adapter forwards each user `input` to a locally running Kepler core as an
+> `input.received` v1 event and does nothing else. It has **only been tested against a mock core** (unit/integration tests in this
+> directory). It has **not** been tested end to end inside a running Pi session, and the Kepler core is not launched or installed by it.
+> Do not describe it as working with Pi until an e2e test with real Pi exists.
 
-> **Not functional yet.** It is a loadable no-op extension skeleton. Installing it does **not** enable Memory, Forge or other Kepler features.
+## What it does
 
-## Local developer installation
+- Registers two Pi hooks in `extensions/kepler.ts`: `input` and `session_shutdown`.
+- On every `input` (sources `interactive` and `rpc` only) it builds an `input.received` envelope and sends it to the per-user
+  Kepler daemon over local IPC (ADR-0007: line-delimited JSON, named pipe on Windows / Unix socket elsewhere,
+  `hello`/`hello_ack` handshake, 131072-byte frame limit, one request in flight).
+- The hook returns immediately (`undefined` = Pi `continue`) and does not wait for Kepler: **the user's text is never changed,
+  delayed, blocked or lost**. No `transform`/`handled` result is ever returned in this milestone.
+- Any failure — core not running, connect/handshake/request timeout, oversized or malformed frame, fatal error frame, unsupported
+  protocol, mismatched reply — is a silent passthrough. Next input retries (new connection).
+- Input that cannot be forwarded verbatim (empty, > 16 KiB, contains NUL, source `extension`) is skipped, never truncated.
+- Privacy: the project id is `pi-<first 16 hex of sha256(cwd)>` (the path itself is not sent). The session id comes from Pi's
+  session manager, sanitized to `[A-Za-z0-9._:-]{1,128}`. Events go only to the same-user local endpoint; no network access.
+- It never starts the core, never downloads or installs anything, and has no install scripts or runtime dependencies.
 
-From the repository root:
+## Endpoint resolution (same as `kepler-ipc`)
+
+| Platform | Endpoint |
+|---|---|
+| Windows | `\\.\pipe\kepler-<USERNAME sanitized>-<name>` |
+| Linux/macOS | `$XDG_RUNTIME_DIR/kepler/kepler-<name>.sock`, else `<tmpdir>/kepler-<user>/kepler-<name>.sock` |
+
+`<name>` is `daemon` unless `KEPLER_IPC_NAME` (`[a-z0-9_-]{1,32}`) says otherwise.
+
+## Pi API compatibility (honest status)
+
+`extensions/kepler.ts` declares **minimal structural types** instead of importing Pi's. They were compared manually (and with a
+scratch `tsc` assignability check, not committed) against the locally installed `@earendil-works/pi-coding-agent` 1.6.0:
+`on("input", (event, ctx) => ...)` with `event.text`/`event.source`, `ctx.cwd`, `ctx.sessionManager.getSessionId()`, and
+`on("session_shutdown")`. The scaffold's earlier peer dependency name `@mariozechner/pi-coding-agent` appears to be the previous
+package scope; the peer dependency is now declared optional as `@earendil-works/pi-coding-agent`. Other Pi versions are **untested**.
+
+## Develop
+
+Requires Node >= 22.18 (native TypeScript type stripping; tests run with the built-in `node:test` runner).
 
 ```bash
-pi install ./adapters/pi
+cd adapters/pi
+npm ci --ignore-scripts
+npm run typecheck   # tsc --noEmit, strict
+npm run build       # compile check into dist/ (not shipped; Pi loads the .ts sources through jiti)
+npm test            # node:test with a mock core on a temporary pipe/socket
 ```
 
-Pi may resolve relative sources based on its settings location; use an **absolute path** if needed. To test without permanent installation, consult the current Pi extension/package documentation.
+Tests cover: endpoint resolution, handshake, passthrough on absent core / timeouts / oversized frames / error frames / bad frames /
+mismatched ids / mid-request close, one-in-flight, event mapping, and the shared fixtures in `/fixtures/events`
+(valid ones accepted and relayed unchanged; invalid ones rejected with the manifest error code by the TS pre-validator).
 
-## Intended public installation (not available)
+## Local developer installation (experimental)
 
 ```bash
-pi install npm:@kepler/pi
+pi install /absolute/path/to/kepler/adapters/pi
 ```
 
-`@kepler/pi` is a **provisional package name**. The npm `@kepler` scope and publishing authorization are not verified. We must secure or change the scope before publishing.
+It is a no-op unless a Kepler core is listening on the endpoint above.
 
-## Layout
+## Not public
 
-- `package.json`: npm package metadata and Pi's explicit extension discovery path.
-- `extensions/kepler.ts`: no-op Pi extension scaffold.
-
-## Release requirements
-
-- Rust Core binary available for supported platform, with checksum/signature verification.
-- A tested IPC event adapter and graceful passthrough when Kepler is missing.
-- Automated package checks and integration tests on supported Pi versions.
-- An explicit LICENSE chosen and added to the repository.
-- Package scope ownership and npm trusted publishing configured.
-- Remove `private: true` only after release criteria are satisfied.
-
-**Packaging plan:** Publish an npm adapter package and distribute signed Rust native binaries separately as optional platform packages or releases. Do not download/execute remote binaries in npm install scripts without explicit architecture and security review.
+`@kepler/pi` is a provisional name; the `@kepler` npm scope is not verified. `private: true`, `license: UNLICENSED`.
+Release gates and the guarded manual procedure are in `docs/distribution/NPM_AND_PI.md` and `RELEASING.md`.
