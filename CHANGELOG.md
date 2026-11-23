@@ -1,10 +1,13 @@
 # Changelog
 
 Format: [Keep a Changelog](https://keepachangelog.com/). Nothing has been released: no tags, binaries or npm
-packages exist. License: MIT. Everything below is on branch `feat/rust-core-d0` and is
+packages exist. License: MIT. Everything below is on branch `integration/all` (local, unpushed) and is
 **unreleased** (workspace version `0.0.1`, `publish = false`).
 
 ## [Unreleased]
+
+### Integration (`integration/all`)
+Merges `feat/functional-core`, `feat/functional-modules` and `feat/claude-code-adapter`. The Claude Code hooks ADR was renumbered from 0020 to ADR-0025 (0020 is the Guardian shell analysis ADR). `scripts/acceptance.ps1` now also covers `kepler hook claude-code` (cold), `kepler sentinel check` and `kepler ui` (token required). Verified on Windows 11 only; Linux/macOS, Playwright Chromium, a real remote model, interactive TUIs and the new GitHub workflows are untested.
 
 ### Added (functional modules, Windows)
 - **Vision runs against a real browser**: the worker launches an already-installed Microsoft Edge (`channel: msedge`), then Chrome, then Playwright's Chromium, or `KEPLER_VISION_BROWSER`; `kepler vision setup` installs the embedded worker sources plus the pinned `playwright` package into the data directory (no browser download, no postinstall); `kepler vision status --probe` launches the browser once and reports which one, or `browser: NONE` with the fix. New findings: HTTP 4xx/5xx sub-resources and broken same-origin links (`links.broken`); screenshots capped at 2 MiB. Worker process tree (browser included) is killed with `taskkill /T` on timeout.

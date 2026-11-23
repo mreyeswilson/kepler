@@ -126,7 +126,7 @@ kepler orbit status <run> ; kepler orbit logs <run> <task> ; kepler orbit cancel
 
 ### Suite de aceptación funcional
 
-`powershell -File scripts/acceptance.ps1 [-Kepler ruta\kepler.exe] [-RequireVision] [-WithClaude]` ejercita el binario release en un `KEPLER_HOME` temporal (version, doctor, emit passthrough/enrich/deny, memory, sentinel, inspect, MCP por stdio, Vision contra un servidor local y un navegador real, Orbit con repos git temporales incl. cancelación y tarea `agent`) e imprime una tabla PASS/FAIL/SKIP; sale con 1 si algo falla. Un SKIP (p. ej. sin Node o sin navegador) nunca cuenta como PASS; `-RequireVision` lo convierte en fallo (así lo usa el job `acceptance.yml` en `windows-2022`). `-WithClaude` añade una tarea real `claude -p` no destructiva.
+`powershell -File scripts/acceptance.ps1 [-Kepler ruta\kepler.exe] [-RequireVision] [-WithClaude]` ejercita el binario release en un `KEPLER_HOME` temporal (version, doctor, emit passthrough/enrich/deny, memory, sentinel audit/check, inspect, MCP por stdio, hook `kepler hook claude-code` en frío (rm -rf => ask, Read .env => deny, `ls` en silencio, JSON basura => exit 0), `kepler ui` con y sin token, Vision contra un servidor local y un navegador real, Orbit con repos git temporales incl. cancelación y tarea `agent`) e imprime una tabla PASS/FAIL/SKIP; sale con 1 si algo falla. Un SKIP (p. ej. sin Node o sin navegador) nunca cuenta como PASS; `-RequireVision` lo convierte en fallo (así lo usa el job `acceptance.yml` en `windows-2022`). `-WithClaude` añade una tarea real `claude -p` no destructiva.
 
 ### Tareas de agente en Orbit
 
@@ -211,6 +211,7 @@ Crates: `kepler-events` (envelope v1), `-policy` (motor, Guardian, redacción), 
 
 ## Qué falta (sin verificar o sin implementar)
 
+* **Estado integrado (rama `integration/all`, solo Windows 11, Node 24):** `cargo clippy -D warnings`, `cargo test --workspace`, tests y e2e de `adapters/pi` (24/24 con Pi 1.6.0), tests de `workers/vision`, `scripts/acceptance.ps1 -WithClaude -RequireVision` (25 PASS, 0 FAIL, 0 SKIP, con Edge real y `claude -p` real) y una prueba real de `claude -p` con los hooks de `kepler hook claude-code` (lectura de `.env` bloqueada, lectura inocua permitida, eventos registrados sin el secreto). **No probado:** Linux y macOS, Chromium descargado por Playwright (solo Edge), modelo remoto real con Pi, TUI interactivo (Pi y Claude Code), los workflows nuevos de GitHub Actions (`acceptance.yml`, etc.), instalación desde un Release (no existe ninguno).
 * Verificado con un Pi real 1.6.0 (e2e: `npm run test:e2e` en `adapters/pi`, modelo scripted sin credenciales; ver [NPM_AND_PI](docs/distribution/NPM_AND_PI.md)). **No** verificado: aprobaciones interactivas en el TUI de Pi, avisos de Focus en un TUI real, un modelo remoto real, cliente MCP de terceros, Chromium real, Linux y macOS.
 * Benchmark A/B con/sin Kepler con un modelo real (KPL-032); compresión de salida de herramientas; detección/instalación de harnesses; primer release real y paquete npm (el adaptador Pi sigue `private: true` hasta aprobar propiedad del scope npm y release).
 * Flujo de diseño/generación de UI de Genesis (ADR-0018); `kepler ui` es solo un panel.
