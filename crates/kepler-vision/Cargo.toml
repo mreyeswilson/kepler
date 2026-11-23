@@ -1,0 +1,17 @@
+[package]
+name = "kepler-vision"
+description = "Kepler Vision: on-demand UI inspection worker manager (internal crate, not published)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+kepler-policy.workspace = true
+kepler-storage.workspace = true
+serde.workspace = true
+serde_json.workspace = true

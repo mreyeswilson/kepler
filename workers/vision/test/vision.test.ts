@@ -237,3 +237,20 @@ test("main.ts as a real process: hello answers, nothing launches, shutdown exits
   assert.equal(frames[1].error.code, "url_not_allowed");
   assert.equal(frames[2].ok, true);
 });
+
+test("real Playwright driver: package importable; a check without a browser/page fails with a stable code", async () => {
+  const { createPlaywrightDriver } = await import("../src/driver.ts");
+  const d = createPlaywrightDriver([]);
+  const available = await d.available();
+  if (!available) return; // package not installed in this environment: nothing more to check
+  try {
+    await d.check("http://localhost:1/", VP, {});
+    assert.fail("nothing listens on port 1");
+  } catch (e) {
+    // No Chromium downloaded -> browser_unavailable; Chromium present -> navigation error.
+    assert.ok(e instanceof Error);
+    assert.ok(["browser_unavailable", "browser_error"].includes((e as { code?: string }).code ?? "browser_error"), String(e));
+  } finally {
+    await d.close();
+  }
+});

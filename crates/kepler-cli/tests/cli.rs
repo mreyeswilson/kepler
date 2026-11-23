@@ -431,3 +431,39 @@ fn sentinel_audit_stores_findings_and_list_shows_them() {
     // Not a repository (or nested in one): either way it must fail cleanly or succeed, never panic.
     assert!(o.status.code().is_some());
 }
+
+#[test]
+fn vision_is_off_until_configured_and_never_starts_a_worker_by_itself() {
+    let env = Env::new();
+    let mut status = env.cmd(&["vision", "status"]);
+    status.env_remove("KEPLER_VISION_WORKER");
+    let o = status.output().unwrap();
+    assert!(o.status.success());
+    assert!(String::from_utf8_lossy(&o.stdout).contains("not configured"));
+
+    let mut check = env.cmd(&["vision", "check", "http://localhost:3000/"]);
+    check.env_remove("KEPLER_VISION_WORKER");
+    let o = check.output().unwrap();
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("KEPLER_VISION_WORKER"));
+
+    // A configured but missing worker program is a clean error, and a refused URL never reaches it.
+    let mut refused = env.cmd(&["vision", "check", "https://example.com/"]);
+    refused.env("KEPLER_VISION_WORKER", env.home.join("no-such-worker.exe"));
+    let o = refused.output().unwrap();
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("URL refused"));
+
+    let o = env.run(&[
+        "vision",
+        "check",
+        "http://localhost/",
+        "--viewport",
+        "10x10",
+    ]);
+    assert_eq!(
+        o.status.code(),
+        Some(2),
+        "invalid viewport is a usage error"
+    );
+}

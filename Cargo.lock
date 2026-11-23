@@ -156,6 +156,7 @@ dependencies = [
  "kepler-memory",
  "kepler-sentinel",
  "kepler-storage",
+ "kepler-vision",
  "serde_json",
  "tokio",
 ]
@@ -262,6 +263,16 @@ dependencies = [
  "kepler-events",
  "kepler-policy",
  "rusqlite",
+ "serde_json",
+]
+
+[[package]]
+name = "kepler-vision"
+version = "0.0.1"
+dependencies = [
+ "kepler-policy",
+ "kepler-storage",
+ "serde",
  "serde_json",
 ]
 

@@ -6,6 +6,7 @@ mod inspect;
 mod mcp_cmd;
 mod memory_cmd;
 mod sentinel_cmd;
+mod vision_cmd;
 
 use clap::{Parser, Subcommand};
 use kepler_core::emit::emit_in_process;
@@ -90,6 +91,11 @@ enum Command {
         #[command(subcommand)]
         cmd: sentinel_cmd::SentinelCmd,
     },
+    /// On-demand UI inspection with a Playwright worker (off until a worker is configured).
+    Vision {
+        #[command(subcommand)]
+        cmd: vision_cmd::VisionCmd,
+    },
     /// Print version information.
     Version {
         #[arg(long)]
@@ -121,6 +127,7 @@ fn main() -> ExitCode {
         }
         Command::Memory { cmd } => memory_cmd::run(cmd),
         Command::Sentinel { cmd } => sentinel_cmd::run(cmd),
+        Command::Vision { cmd } => vision_cmd::run(cmd),
         Command::Mcp { cmd: McpCmd::Serve } => mcp_cmd::serve(),
         Command::Inspect { limit } => match inspect::inspect_value(limit) {
             Ok(v) => {
