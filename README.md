@@ -125,27 +125,21 @@ Ejemplo de `plan.json` (comandos como *argv*, nunca cadenas de shell):
 
 ### Conectar con Claude Code
 
-Dos piezas independientes: el MCP solo da herramientas; los hooks son lo que observa y protege. Verificado solo con Claude Code 2.1.330 en Windows (ejecución real de `claude -p` en un directorio temporal); no en Linux/macOS ni en la UI interactiva ([ADR-0020](docs/decisions/0020-claude-code-hooks-adapter.md)).
+Dos piezas independientes: el MCP solo da herramientas; los hooks son lo que observa y protege. Verificado solo con Claude Code 2.1.330 en Windows (ejecución real de `claude -p` en un directorio temporal); no en la UI interactiva; Linux/macOS sin probar ([ADR-0020](docs/decisions/0020-claude-code-hooks-adapter.md)).
 
-**1. MCP** (el registro con `claude mcp add` no se ejecutó en esta verificación; herramientas `kepler_doctor`, `kepler_inspect`, `kepler_memory_search`):
+**1. MCP** (PowerShell; el registro con `claude mcp add` no se ejecutó en esta verificación; herramientas `kepler_doctor`, `kepler_inspect`, `kepler_memory_search`):
 
-```bash
-claude mcp add kepler -- /ruta/absoluta/a/kepler mcp serve
-```
 ```powershell
 claude mcp add kepler -- "C:\ruta\a\kepler.exe" mcp serve
 ```
 
 **2. Hooks** (sin Node). Genera el bloque con la ruta absoluta de tu `kepler`:
 
-```bash
-kepler hook claude-code --print-settings                    # bash
-```
 ```powershell
 kepler hook claude-code --print-settings | Set-Clipboard    # PowerShell
 ```
 
-Pega la clave `"hooks"` en `.claude/settings.json` de un proyecto (recomendado para probar) o en `~/.claude/settings.json`. Kepler **no** edita tus settings. Si tu Claude Code no admite `args`, usa `--shell-form`.
+Pega la clave `"hooks"` en `.claudesettings.json` de un proyecto (recomendado para probar) o en `%USERPROFILE%.claudesettings.json`. En Linux/macOS el comando equivale pero no está probado. Kepler **no** edita tus settings. Si tu Claude Code no admite `args`, usa `--shell-form`.
 
 | Hook | Efecto |
 |---|---|
