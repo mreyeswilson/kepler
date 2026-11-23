@@ -19,5 +19,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts", "extensions/**/*.ts", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "extensions/**/*.ts", "test/**/*.ts"],
+  "exclude": ["test/e2e/**"]
 }

@@ -27,6 +27,9 @@ pub enum Payload {
 pub struct InputReceived {
     /// The user's verbatim text. Never rewritten by Kepler.
     pub text: String,
+    /// Current git branch, when the adapter knows it (ADR-0021). Scopes branch memories.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,6 +94,9 @@ pub struct FilesChanged {
 pub struct AgentStarted {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// Current git branch, when the adapter knows it (ADR-0021).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -199,7 +205,10 @@ impl Payload {
 
     pub(crate) fn validate(&self) -> Result<(), EventError> {
         match self {
-            Self::InputReceived(p) => check_text("payload.text", &p.text, MAX_TEXT_BYTES),
+            Self::InputReceived(p) => {
+                check_text("payload.text", &p.text, MAX_TEXT_BYTES)?;
+                opt("payload.branch", &p.branch, MAX_SHORT_BYTES)
+            }
             Self::ContextRequested(p) => opt("payload.query", &p.query, MAX_QUERY_BYTES),
             Self::ToolCallRequested(p) => {
                 nonempty_tool(&p.tool)?;
@@ -211,7 +220,10 @@ impl Payload {
                 opt("payload.output_excerpt", &p.output_excerpt, MAX_TEXT_BYTES)
             }
             Self::FilesChanged(p) => paths_ok("payload.paths", &p.paths),
-            Self::AgentStarted(p) => opt("payload.agent", &p.agent, MAX_SHORT_BYTES),
+            Self::AgentStarted(p) => {
+                opt("payload.agent", &p.agent, MAX_SHORT_BYTES)?;
+                opt("payload.branch", &p.branch, MAX_SHORT_BYTES)
+            }
             Self::MemoryCandidate(p) => {
                 check_text("payload.text", &p.text, MAX_MEMORY_TEXT_BYTES)?;
                 opt("payload.category", &p.category, MAX_SHORT_BYTES)

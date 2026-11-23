@@ -28,7 +28,7 @@ interface PiExtensionApi {
   on(event: "agent_start", h: Handler<unknown>): unknown;
   on(event: "agent_settled", h: Handler<{ aborted?: boolean }>): unknown;
   on(event: "tool_call", h: Handler<{ toolName: string; toolCallId?: string; input?: unknown }>): unknown;
-  on(event: "tool_result", h: Handler<{ toolName: string; toolCallId?: string; content?: unknown; isError?: boolean }>): unknown;
+  on(event: "tool_result", h: Handler<{ toolName: string; toolCallId?: string; content?: unknown; isError?: boolean; input?: unknown }>): unknown;
   on(event: "session_shutdown", h: Handler<{ reason?: string }>): unknown;
 }
 

@@ -11,6 +11,8 @@ export interface InputObservation {
   source: InputSource;
   cwd: string;
   sessionId: string;
+  /** Current git branch when known. */
+  branch?: string | undefined;
 }
 
 export interface BuildOptions {
@@ -53,7 +55,7 @@ export function buildInputReceived(
     project_id: projectIdFromCwd(obs.cwd),
     session_id: sanitizeIdentifier(obs.sessionId, "pi-unknown"),
     correlation_id: `pi-${newId()}`,
-    payload: { text: obs.text },
+    payload: obs.branch === undefined ? { text: obs.text } : { text: obs.text, branch: obs.branch },
   };
   if (validateEnvelope(event) !== null) return { ok: false, skip: "invalid_envelope" };
   return { ok: true, event };

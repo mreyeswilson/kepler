@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -7,6 +7,7 @@ import keplerExtension from "../extensions/kepler.ts";
 import { KeplerClient, type Decision, type SendResult } from "../src/client.ts";
 import { resolveEndpoint } from "../src/endpoint.ts";
 import { validateEnvelope } from "../src/envelope.ts";
+import { currentBranch } from "../src/git.ts";
 import { PiHooks, renderDerived, type PiCtx, type Sender } from "../src/hooks.ts";
 import { startMock, HELLO_ACK } from "./helpers.ts";
 
@@ -237,4 +238,45 @@ test("through the real IPC client: a core denial blocks the tool call, silence d
   const h2 = new PiHooks(new KeplerClient({ endpoint: resolveEndpoint({ env: { ...env, KEPLER_IPC_NAME: "gone-core" } }) }));
   assert.equal(await h2.onToolCall({ toolName: "bash", input: { command: "cat .env" } }, ctx), undefined);
   rmSync(runtime, { recursive: true, force: true });
+});
+
+test("advisories are shown once per code, only with a UI, and never change the verdict", async () => {
+  const notes: string[] = [];
+  const adv = (code: string) => ({ source: "focus", level: "warn", code, message: `msg for ${code}\u0007` });
+  const { sender } = fake(() => decide({ action: "passthrough", reason: "x", advisories: [adv("loop.repeated_call"), adv("scope.unrelated_changes")] }));
+  const h = new PiHooks(sender);
+  const uiCtx: PiCtx = { ...ctx, hasUI: true, ui: { notify: (m) => void notes.push(m) } };
+  const call = { toolName: "bash", toolCallId: "c1", input: { command: "ls" } };
+  assert.equal(await h.onToolCall(call, uiCtx), undefined);
+  assert.equal(await h.onToolCall({ ...call, toolCallId: "c2" }, uiCtx), undefined);
+  await tick();
+  assert.equal(notes.length, 2, "one per code per session");
+  assert.match(notes[0] ?? "", /loop\.repeated_call/);
+  assert.doesNotMatch(notes.join(""), /\u0007/);
+  // no UI (print mode): nothing is shown and nothing throws
+  const quiet = new PiHooks(sender);
+  await quiet.onToolCall(call, ctx);
+  await tick();
+});
+
+test("branch is sent with input.received and agent.started when the cwd is a git work tree", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "kpl-git-"));
+  try {
+    mkdirSync(join(dir, ".git"));
+    mkdirSync(join(dir, "sub"));
+    writeFileSync(join(dir, ".git", "HEAD"), "ref: refs/heads/feat/zeta\n");
+    const { sender, sent } = fake(() => pass);
+    const h = new PiHooks(sender);
+    const c: PiCtx = { cwd: join(dir, "sub"), sessionManager: { getSessionId: () => "sess-b" } };
+    h.onInput({ text: "work on the zeta importer", source: "interactive" }, c);
+    h.onAgentStart(c);
+    await tick();
+    assert.equal(sent[0]?.payload["branch"], "feat/zeta");
+    assert.equal(sent[1]?.payload["branch"], "feat/zeta");
+    writeFileSync(join(dir, ".git", "HEAD"), "0123456789abcdef0123456789abcdef01234567\n");
+    assert.equal(currentBranch(dir), undefined, "detached HEAD has no branch");
+    assert.equal(currentBranch(join(tmpdir(), "kpl-no-repo-xyz")), undefined);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

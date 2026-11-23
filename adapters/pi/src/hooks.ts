@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Decision, SendResult } from "./client.ts";
 import { ENVELOPE_VERSION, MAX_TEXT_BYTES, validateEnvelope, type EventEnvelope, type EventKind } from "./envelope.ts";
+import { currentBranch } from "./git.ts";
 import { buildInputReceived, projectIdFromCwd, sanitizeIdentifier } from "./observer.ts";
 
 /**
@@ -37,9 +38,14 @@ export interface PiCtx {
   cwd: string;
   sessionManager: { getSessionId(): string };
   hasUI?: boolean;
-  ui?: { confirm?(title: string, message: string): Promise<boolean> | boolean };
+  ui?: {
+    confirm?(title: string, message: string): Promise<boolean> | boolean;
+    notify?(message: string, level?: "info" | "warning" | "error"): void;
+  };
 }
 
+/** Pi built-in tools that write a file named by `path`. */
+const WRITE_TOOLS = new Set(["edit", "write", "multiedit", "multi_edit"]);
 const MAX_QUEUE = 8;
 const MAX_COMMAND_BYTES = 4096;
 const MAX_PATH_BYTES = 1024;
@@ -120,7 +126,37 @@ export class PiHooks {
 
   private emit(kind: EventKind, payload: unknown, ctx: PiCtx): Promise<SendResult> {
     const e = this.envelope(kind, payload, ctx);
-    return e === null ? Promise.resolve({ ok: false, reason: "protocol" }) : this.send(e);
+    if (e === null) return Promise.resolve({ ok: false, reason: "protocol" });
+    const p = this.send(e);
+    void p.then((r) => this.surface(r, ctx), () => undefined);
+    return p;
+  }
+
+  private readonly shownAdvisories = new Map<string, number>();
+
+  /**
+   * Show Focus advisories (loops, scope drift, unverified completion) to the user. Advisories are
+   * Kepler-generated notes that never alter a verdict; they are shown only where Pi has a UI, at
+   * most once per code per session and only a bounded number of times. Never throws.
+   */
+  private surface(r: SendResult, ctx: PiCtx): void {
+    try {
+      if (!r.ok || ctx.hasUI !== true || typeof ctx.ui?.notify !== "function") return;
+      const list = r.decision["advisories"];
+      if (!Array.isArray(list)) return;
+      const session = this.sessionKey(ctx);
+      for (const a of list.slice(0, 4)) {
+        if (!isRecord(a) || typeof a["code"] !== "string" || typeof a["message"] !== "string") continue;
+        const key = `${session}:${a["code"]}`;
+        if (this.shownAdvisories.has(key) || this.shownAdvisories.size > 512) continue;
+        this.shownAdvisories.set(key, Date.now());
+        const level = a["level"] === "warn" || a["level"] === "recommend_stop" ? "warning" : "info";
+        const text = String(a["message"]).replace(/[\u0000-\u001f\u007f]/g, " ").slice(0, 300);
+        ctx.ui.notify(`Kepler (${String(a["code"]).slice(0, 48)}): ${text}`, level);
+      }
+    } catch {
+      /* never affect the host */
+    }
   }
 
   private sessionKey(ctx: PiCtx): string {
@@ -131,7 +167,7 @@ export class PiHooks {
   onInput(event: { text: string; source: string }, ctx: PiCtx): void {
     try {
       const built = buildInputReceived(
-        { text: event.text, source: event.source, cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId() },
+        { text: event.text, source: event.source, cwd: ctx.cwd, sessionId: ctx.sessionManager.getSessionId(), branch: currentBranch(ctx.cwd) },
         { now: this.now, newId: this.newId },
       );
       if (!built.ok) return;
@@ -163,7 +199,8 @@ export class PiHooks {
   onAgentStart(ctx: PiCtx): void {
     try {
       this.agentStart = Date.now();
-      void this.emit("agent.started", { agent: "pi" }, ctx);
+      const branch = currentBranch(ctx.cwd);
+      void this.emit("agent.started", branch === undefined ? { agent: "pi" } : { agent: "pi", branch }, ctx);
     } catch {
       /* ignore */
     }
@@ -232,7 +269,7 @@ export class PiHooks {
 
   /** `tool_result`: replace the content only on an explicit `redact` verdict. */
   async onToolResult(
-    event: { toolName: string; toolCallId?: string; content?: unknown; isError?: boolean },
+    event: { toolName: string; toolCallId?: string; content?: unknown; isError?: boolean; input?: unknown },
     ctx: PiCtx,
   ): Promise<{ content: Array<{ type: "text"; text: string }> } | undefined> {
     try {
@@ -249,6 +286,14 @@ export class PiHooks {
         duration_ms: started === undefined ? 0 : Math.min(Date.now() - started, 0xffffffff),
       };
       if (text.length > 0 && !text.includes("\0")) payload["output_excerpt"] = truncateUtf8(text, MAX_TEXT_BYTES);
+      // Successful edit/write tools change a known file: report it (feeds Focus scope/loop
+      // detection, Sentinel path rules and branch memory). Shell-driven changes are not visible.
+      if (event.isError !== true && WRITE_TOOLS.has(String(event.toolName)) && isRecord(event.input)) {
+        const changed = ["path", "file_path", "filePath"]
+          .map((k) => (event.input as Record<string, unknown>)[k])
+          .filter((v): v is string => typeof v === "string" && v.length > 0 && !v.includes("\0"));
+        if (changed.length > 0) void this.emit("files.changed", { paths: changed.slice(0, 4).map((p) => truncateUtf8(p, MAX_PATH_BYTES)) }, ctx);
+      }
       const r = await this.withTimeout(this.emit("tool.call.completed", payload, ctx));
       if (!r.ok || r.decision.action !== "redact") return undefined;
       const kinds = Array.isArray(r.decision["kinds"]) ? (r.decision["kinds"] as unknown[]).filter((k) => typeof k === "string").join(", ") : "";

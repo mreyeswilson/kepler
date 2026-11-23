@@ -1,9 +1,10 @@
-# Kepler Pi adapter (KPL-008, KPL-019) — automatic hooks, unverified against real Pi
+# Kepler Pi adapter (KPL-008, KPL-019) — automatic hooks, verified against Pi 1.6.0 on Windows
 
-> **Status: experimental, private (`private: true`), not published.** The adapter forwards Pi hook events to a locally running Kepler core and applies its verdicts as described in "Automatic hooks" below. It is tested against a mock core (tests in this directory) and was checked once,
-> manually on Windows, against the real Rust daemon (`kepler daemon`: handshake, passthrough decision, `invalid_field` error).
-> It has **not** been tested end to end inside a running Pi session, and the Kepler core is not launched or installed by it.
-> Do not describe it as working with Pi until an e2e test with real Pi exists.
+> **Status: experimental, private (`private: true`), not published.** The adapter forwards Pi hook events to a locally running Kepler core and applies its verdicts as described in "Automatic hooks" below.
+> Unit tests use a mock core. `npm run test:e2e` (`test/e2e/run.mjs`) runs a **real Pi** (`@earendil-works/pi-coding-agent@1.6.0` installed from npm into a temp directory), installs this package with `pi install <path>`, talks to the **real release `kepler` daemon**, and drives tool calls with a scripted test-only "faux" model (no credentials needed, no remote model). 24 checks pass on Windows 11: harmless tool runs; `cat .env` and an obfuscated variant are blocked; `git push --force` is blocked without an approval UI; a token in tool output is withheld before the model sees it; recalled memory arrives as a labeled system-prompt block while the user prompt is untouched; branch-scoped memory is recalled only on its branch; a negative control shows the same call leaks the secret without the adapter; the database holds neither secret.
+> **Not verified:** interactive approval prompts and advisory notifications in the real TUI (print mode has no UI), a real remote model, other Pi versions, Linux/macOS. The Kepler core is never launched or installed by the adapter. The package stays private until scope ownership and release are approved.
+>
+> Findings of the first real run: none of the payload assumptions needed correcting (event names, `tool_call` block shape, `tool_result` content patch, `agent_settled`, `session_shutdown`, `ctx.cwd`, `ctx.sessionManager.getSessionId()`, `ctx.hasUI`). Gaps found and fixed: the adapter never reported `files.changed` (now sent after successful `edit`/`write` tools), never sent the git branch (now read from `.git/HEAD`), and never displayed Focus advisories (now `ctx.ui.notify`, once per code per session, only with a UI). Pi loads the extension through `pi install <path>` with the `pi.extensions` manifest entry.
 
 ## What it does
 

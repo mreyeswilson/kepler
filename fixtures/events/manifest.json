@@ -6,7 +6,7 @@
     "valid/input.received.json", "valid/prompt.prepared.json", "valid/context.requested.json",
     "valid/context.prepared.json", "valid/tool.call.requested.json", "valid/tool.call.completed.json",
     "valid/files.changed.json", "valid/agent.started.json", "valid/agent.settled.json",
-    "valid/memory.candidate.json", "valid/session.closed.json"
+    "valid/memory.candidate.json", "valid/session.closed.json", "valid/input.received.branch.json"
   ],
   "invalid": [
     { "file": "invalid/version-unknown.json", "error": "unsupported_version" },

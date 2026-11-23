@@ -78,3 +78,16 @@ Status is only "done" when code **and** tests exist. Measured performance is not
 | KPL-033 | Partial | By design Focus only warns (`advisories` on the verdict); blocking stays with the Guardian preflight. The Pi adapter does not display advisories yet. |
 | KPL-034..036 | Not started | Genesis is design only ([ADR-0018](../decisions/0018-genesis-deferred-design.md)); no UI exists. |
 | KPL-037 | Done (CLI) | Orbit: `kepler-orbit`, `tasks`/`task_dependencies`/`orbit_runs` (migration v4), plan validation with cycle detection, bounded concurrency, git worktree per task with dependency merges and conflict/overlap reporting, approval checkpoints for destructive commands, process-tree kill on timeout/cancel, `kepler orbit ...` ([ADR-0017](../decisions/0017-orbit-dag-scheduler.md)). No agent spawning, no OS resource limits, Unix kill path not executed on Unix. |
+
+## Update: functional core (branch feat/functional-core)
+
+| ID | Status change | Evidence |
+|---|---|---|
+| KPL-013 | Guardian parses shell/PowerShell/cmd | [ADR-0020](../decisions/0020-guardian-shell-analysis.md); corpus `fixtures/guardian/bypass.txt` |
+| KPL-011/012 | Memory captures observed commands and branch work; branch scope selected | [ADR-0021](../decisions/0021-memory-auto-capture-and-branch.md) |
+| KPL-015 | Sentinel runs project lint/test (`kepler sentinel check`) | [ADR-0022](../decisions/0022-sentinel-project-checks.md); CLI e2e test on a real cargo project |
+| KPL-009 | Forge measured on a 79-prompt corpus | `fixtures/forge/prompts.tsv`, `crates/kepler-forge/tests/corpus.rs` |
+| KPL-027/033 | Focus calibrated on labelled traces; Pi shows advisories | [ADR-0023](../decisions/0023-focus-calibration-and-advisory-display.md) |
+| KPL-008/019 | Pi adapter verified with a real Pi 1.6.0 (scripted model, release daemon) | `adapters/pi/test/e2e/run.mjs` (24 checks); still `private: true` |
+| KPL-034 (partial) | Local dashboard `kepler ui`; design workflow still not built | [ADR-0024](../decisions/0024-genesis-local-ui.md) |
+| KPL-032 | Still not started: needs a live model for the A/B | - |

@@ -30,6 +30,9 @@ pub struct PipelineConfig {
     /// Context budget stage. The security preflight is always on and cannot be disabled.
     pub guardian_budget: bool,
     pub guardian_rules: GuardianRules,
+    /// Project directories (`KEPLER_PROJECT_ROOTS`, path-separator list) used to resolve
+    /// relative paths through symlinks/junctions in the Guardian preflight.
+    pub project_roots: Vec<PathBuf>,
     pub memory_config: MemoryConfig,
     /// Non-fatal problems found while building the config (e.g. bad rule lines).
     pub warnings: Vec<String>,
@@ -45,6 +48,7 @@ impl Default for PipelineConfig {
             memory: true,
             guardian_budget: true,
             guardian_rules: GuardianRules::default(),
+            project_roots: Vec::new(),
             memory_config: MemoryConfig::default(),
             warnings: Vec::new(),
         }
@@ -72,6 +76,13 @@ impl PipelineConfig {
             memory: !memory_config.force_disabled,
             guardian_budget: !off("KEPLER_GUARDIAN_BUDGET"),
             guardian_rules,
+            project_roots: std::env::var_os("KEPLER_PROJECT_ROOTS")
+                .map(|v| {
+                    std::env::split_paths(&v)
+                        .filter(|p| !p.as_os_str().is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
             memory_config,
             warnings,
         }
@@ -117,7 +128,9 @@ pub type MemoryStorage = Option<(Arc<Writer>, PathBuf)>;
 
 pub fn build_engine(cfg: &PipelineConfig, storage: MemoryStorage) -> PolicyEngine {
     let mut engine = PolicyEngine::new(MODULE_BUDGET);
-    engine.set_guardian(Guardian::new(cfg.guardian_rules.clone()));
+    engine.set_guardian(
+        Guardian::new(cfg.guardian_rules.clone()).with_roots(cfg.project_roots.clone()),
+    );
     if cfg.forge {
         engine.register(Box::new(ForgeModule));
     }

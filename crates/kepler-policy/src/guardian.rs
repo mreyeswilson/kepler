@@ -15,7 +15,7 @@
 
 use crate::decision::{Decision, Derived};
 use crate::engine::{ModuleError, OutputStage};
-use crate::preflight::preflight_tool_call;
+
 use crate::redact::detect_secrets;
 use crate::tokens::{estimate_tokens, ModelFamily};
 use kepler_events::{Envelope, Payload, ToolCallCompleted, ToolCallRequested};
@@ -126,6 +126,7 @@ const SYSTEM_PREFIXES: &[&str] = &[
 const GIT_INTERNALS: &[&str] = &[".git/hooks/", ".git/config", ".gitmodules"];
 
 pub struct Guardian {
+    roots: Vec<std::path::PathBuf>,
     rules: GuardianRules,
 }
 
@@ -137,7 +138,16 @@ impl Default for Guardian {
 
 impl Guardian {
     pub fn new(rules: GuardianRules) -> Self {
-        Self { rules }
+        Self {
+            rules,
+            roots: Vec::new(),
+        }
+    }
+
+    /// Project directories used to resolve relative paths through symlinks.
+    pub fn with_roots(mut self, roots: Vec<std::path::PathBuf>) -> Self {
+        self.roots = roots;
+        self
     }
 
     pub fn rules(&self) -> &GuardianRules {
@@ -146,7 +156,7 @@ impl Guardian {
 
     /// Verdict for a tool call. Deterministic; the built-in checks win over user rules.
     pub fn preflight(&self, call: &ToolCallRequested) -> Decision {
-        let base = preflight_tool_call(call);
+        let base = crate::preflight::preflight_tool_call_with_roots(call, &self.roots);
         if matches!(base, Decision::Deny { .. }) {
             return base;
         }

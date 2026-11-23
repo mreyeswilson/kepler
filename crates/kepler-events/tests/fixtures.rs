@@ -20,10 +20,9 @@ fn valid_json() -> String {
 fn every_valid_fixture_parses_and_roundtrips() {
     let m = manifest();
     let files = m["valid"].as_array().unwrap();
-    assert_eq!(
-        files.len(),
-        EventKind::ALL.len(),
-        "one valid fixture per event kind"
+    assert!(
+        files.len() >= EventKind::ALL.len(),
+        "at least one valid fixture per event kind"
     );
     let mut kinds = Vec::new();
     for f in files {

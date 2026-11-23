@@ -1,6 +1,6 @@
 # Distribution: npm and Pi Coding Agent
 
-**Status:** `adapters/pi` contains an experimental observe-only adapter (IPC client + `input` hook; mock-core tests only, **not verified with a real Pi session**). **No package is published**, the package stays `private: true`, and no native binaries are published yet. A guarded release workflow exists but cannot publish until the gates below are manually satisfied (see [RELEASING.md](../../RELEASING.md)).
+**Status:** `adapters/pi` contains an experimental adapter with automatic hooks, verified end to end against a real Pi 1.6.0 on Windows with a scripted model and the release daemon (`npm run test:e2e`; TUI approvals/notifications, a remote model and other platforms are **not** verified). **No package is published**, the package stays `private: true`, and no native binaries are published yet. A guarded release workflow exists but cannot publish until the gates below are manually satisfied (see [RELEASING.md](../../RELEASING.md)).
 
 ## Why npm?
 Pi can install a package via `pi install npm:<package>`. npm is a distribution channel for the Pi-specific TypeScript adapter, **not** Kepler's Rust core implementation.

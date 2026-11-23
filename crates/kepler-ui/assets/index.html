@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kepler</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <h1>Kepler</h1>
+  <span id="status" class="muted">loading...</span>
+  <nav id="tabs">
+    <button data-tab="overview" class="active">Overview</button>
+    <button data-tab="events">Events</button>
+    <button data-tab="memories">Memory</button>
+    <button data-tab="findings">Findings</button>
+    <button data-tab="orbit">Orbit</button>
+  </nav>
+</header>
+<main id="view"></main>
+<footer class="muted">Local only (127.0.0.1). Read-only except explicit Orbit approvals when started with --allow-actions. Nothing leaves this machine.</footer>
+<script src="/app.js"></script>
+</body>
+</html>

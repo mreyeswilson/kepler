@@ -35,6 +35,32 @@ pub enum SentinelCmd {
         #[arg(long, value_parser = parse_severity)]
         fail_on: Option<Severity>,
     },
+    /// Run the project's own lint/test commands (bounded, Guardian-gated) and record findings.
+    /// Commands come only from `--cmd` or an explicit `--detect`, never from repository files.
+    Check {
+        #[arg(long, default_value = ".")]
+        repo: PathBuf,
+        /// `name=program args...` (argv, no shell). Repeatable.
+        #[arg(long = "cmd")]
+        cmds: Vec<String>,
+        /// Use defaults for the manifests found (Cargo.toml, package.json scripts, pytest, go.mod).
+        #[arg(long)]
+        detect: bool,
+        /// Per-command wall-clock limit.
+        #[arg(long, default_value_t = 300)]
+        timeout_secs: u64,
+        /// Allow commands the Guardian classifies as needing approval (denied ones never run).
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        project: Option<String>,
+        #[arg(long)]
+        store: bool,
+        #[arg(long)]
+        json: bool,
+        #[arg(long, value_parser = parse_severity)]
+        fail_on: Option<Severity>,
+    },
     /// List stored findings (newest first).
     List {
         #[arg(long)]
@@ -175,6 +201,116 @@ fn exec(cmd: SentinelCmd) -> Result<ExitCode, String> {
             }
             let failed = fail_on.is_some_and(|min| report.hits.iter().any(|h| h.severity >= min));
             Ok(if failed {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
+        SentinelCmd::Check {
+            repo,
+            cmds,
+            detect,
+            timeout_secs,
+            yes,
+            project,
+            store,
+            json,
+            fail_on,
+        } => {
+            use kepler_sentinel::{CheckSpec, CheckStatus};
+            let mut specs = Vec::new();
+            for c in &cmds {
+                specs.push(CheckSpec::parse(c).map_err(|e| format!("--cmd {c:?}: {e}"))?);
+            }
+            if detect {
+                specs.extend(kepler_sentinel::detect(&repo));
+            }
+            if specs.is_empty() {
+                return Err("nothing to run: pass --cmd \"name=program args\" or --detect".into());
+            }
+            let (rules, _) = kepler_core::pipeline::load_guardian_rules();
+            let guardian = kepler_policy::Guardian::new(rules);
+            let project = project.unwrap_or_else(|| project_for(&repo));
+            let mut results = Vec::new();
+            for s in &specs {
+                results.push(kepler_sentinel::run_check(
+                    &repo,
+                    s,
+                    Duration::from_secs(timeout_secs.max(1)),
+                    &guardian,
+                    yes,
+                ));
+            }
+            let hits: Vec<Hit> = results.iter().flat_map(|r| r.hits.clone()).collect();
+            let mut stored = None;
+            if store && !hits.is_empty() {
+                let path = kepler_storage::dirs::db_path().map_err(|e| e.to_string())?;
+                let writer = Writer::start(&path, Default::default()).map_err(|e| e.to_string())?;
+                let findings: Vec<_> = hits
+                    .iter()
+                    .cloned()
+                    .map(|h| h.into_finding(&project, ""))
+                    .collect();
+                stored = Some(
+                    writer
+                        .exec(Duration::from_secs(5), move |c| {
+                            store_findings(c, &findings)
+                        })
+                        .map_err(|e| e.to_string())?,
+                );
+            }
+            let status_str = |s: &CheckStatus| match s {
+                CheckStatus::Passed => "passed".to_string(),
+                CheckStatus::Failed(c) => format!("failed({c})"),
+                CheckStatus::TimedOut => "timed_out".to_string(),
+                CheckStatus::Skipped(r) => format!("skipped: {r}"),
+            };
+            if json {
+                println!(
+                    "{}",
+                    json!({
+                        "project": project, "stored_new": stored,
+                        "checks": results.iter().map(|r| json!({
+                            "name": r.name, "command": r.command, "status": status_str(&r.status),
+                            "duration_ms": r.duration_ms, "output_truncated": r.output_truncated,
+                            "findings": r.hits.len(),
+                        })).collect::<Vec<_>>(),
+                        "findings": hits.iter().map(hit_json).collect::<Vec<_>>(),
+                    })
+                );
+            } else {
+                for r in &results {
+                    println!(
+                        "check {:14} {:10} {:>6} ms  {} finding(s)  `{}`",
+                        r.name,
+                        status_str(&r.status),
+                        r.duration_ms,
+                        r.hits.len(),
+                        r.command
+                    );
+                }
+                let mut sorted = hits.clone();
+                sorted.sort_by_key(|h| std::cmp::Reverse(h.severity));
+                for h in sorted.iter().take(30) {
+                    println!(
+                        "  [{:8}] {} {}\n      {}",
+                        h.severity.as_str(),
+                        loc(&h.path, h.line),
+                        h.rule_id,
+                        h.message
+                    );
+                }
+                match stored {
+                    Some(n) => println!("stored {n} new finding(s) for project {project}"),
+                    None if store => {}
+                    None => println!("(not stored; pass --store to keep these findings)"),
+                }
+            }
+            let any_failed = results
+                .iter()
+                .any(|r| matches!(r.status, CheckStatus::Failed(_) | CheckStatus::TimedOut));
+            let sev_fail = fail_on.is_some_and(|min| hits.iter().any(|h| h.severity >= min));
+            Ok(if any_failed || sev_fail {
                 ExitCode::FAILURE
             } else {
                 ExitCode::SUCCESS

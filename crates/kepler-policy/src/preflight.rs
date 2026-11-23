@@ -98,10 +98,42 @@ fn command_tokens(cmd: &str) -> impl Iterator<Item = &str> {
 /// * path that climbs above its start                  -> `RequireApproval`
 /// * otherwise                                         -> `Passthrough`
 pub fn preflight_tool_call(call: &ToolCallRequested) -> Decision {
+    preflight_tool_call_with_roots(call, &[])
+}
+
+/// Same as [`preflight_tool_call`], resolving relative paths against `roots` (symlinks).
+pub fn preflight_tool_call_with_roots(
+    call: &ToolCallRequested,
+    roots: &[std::path::PathBuf],
+) -> Decision {
+    let shell = call
+        .command
+        .as_deref()
+        .map(|c| crate::shell::analyze(c, roots))
+        .unwrap_or_default();
     if call.paths.iter().any(|p| is_sensitive_path(p)) {
         return Decision::Deny {
             reason: "sensitive_path".into(),
         };
+    }
+    if let Some(reason) = shell.deny {
+        return Decision::Deny {
+            reason: reason.into(),
+        };
+    }
+    for p in &call.paths {
+        if crate::shell::extra_sensitive(p) {
+            return Decision::Deny {
+                reason: "sensitive_path".into(),
+            };
+        }
+        if let Some(real) = crate::shell::resolve_real(p, roots) {
+            if is_sensitive_path(&real) || crate::shell::extra_sensitive(&real) {
+                return Decision::Deny {
+                    reason: "sensitive_path_via_link".into(),
+                };
+            }
+        }
     }
     if let Some(cmd) = &call.command {
         if command_tokens(cmd).any(is_sensitive_path) {
@@ -114,6 +146,11 @@ pub fn preflight_tool_call(call: &ToolCallRequested) -> Decision {
                 reason: "destructive_command".into(),
             };
         }
+    }
+    if let Some(reason) = shell.approve {
+        return Decision::RequireApproval {
+            reason: reason.into(),
+        };
     }
     if call.destructive {
         return Decision::RequireApproval {
