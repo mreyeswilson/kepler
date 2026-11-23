@@ -123,11 +123,19 @@ impl Grant {
     }
 }
 
+/// One verdict for one capability (flat JSON: `{"capability":..,"status":..,..}`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapabilityResult {
+    pub capability: Capability,
+    #[serde(flatten)]
+    pub grant: Grant,
+}
+
 /// Result of negotiation: always exactly one verdict per known capability.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Negotiated {
     pub harness: String,
-    pub results: Vec<(Capability, Grant)>,
+    pub results: Vec<CapabilityResult>,
     /// Advertised names Kepler does not know (ignored, reported).
     pub ignored: Vec<String>,
 }
@@ -140,8 +148,8 @@ impl Negotiated {
         };
         self.results
             .iter()
-            .find(|(k, _)| *k == c)
-            .map_or(&MISSING, |(_, g)| g)
+            .find(|r| r.capability == c)
+            .map_or(&MISSING, |r| &r.grant)
     }
 
     pub fn is_granted(&self, c: Capability) -> bool {
@@ -219,7 +227,10 @@ pub fn negotiate(adv: &Advertisement) -> Result<Negotiated, NegotiationError> {
                 },
                 Some(e) => grant_for(cap, e),
             };
-            (cap, grant)
+            CapabilityResult {
+                capability: cap,
+                grant,
+            }
         })
         .collect();
     Ok(Negotiated {
@@ -316,7 +327,7 @@ mod tests {
     fn empty_advertisement_is_all_unsupported_but_explicit() {
         let n = negotiate(&adv(vec![])).unwrap();
         assert_eq!(n.results.len(), 8);
-        assert!(n.results.iter().all(|(_, g)| !g.is_granted()));
+        assert!(n.results.iter().all(|r| !r.grant.is_granted()));
     }
 
     #[test]
@@ -369,7 +380,7 @@ mod tests {
     fn unknown_capability_is_ignored_and_reported() {
         let n = negotiate(&adv(vec![entry("teleport", ImplKind::NativeHook)])).unwrap();
         assert_eq!(n.ignored, vec!["teleport".to_string()]);
-        assert!(n.results.iter().all(|(_, g)| !g.is_granted()));
+        assert!(n.results.iter().all(|r| !r.grant.is_granted()));
     }
 
     #[test]
