@@ -22,11 +22,22 @@
 | KPL-018 | P1 | Native binary packaging | Verified binaries and cross-platform installation strategy |
 | KPL-019 | P1 | Pi automatic hook integration | Typed event IPC, tests and safe no-core passthrough |
 | KPL-020 | P1 | npm public release pipeline | Verified scope, license, trusted publishing, approval and version gate |
-
 | KPL-021 | P0 | Installed harness/client discovery | Detect Pi, Claude Code and Claude Desktop read-only; report version and integration limits |
 | KPL-022 | P1 | Safe configuration installer | Preview, approval, atomic merge, backup, rollback and uninstall |
 | KPL-023 | P1 | Claude Desktop MCP adapter | MCP stdio integration with explicitly limited automatic capabilities |
 | KPL-024 | P2 | Desktop extension packaging | Test optional MCPB package and platform compatibility |
 | KPL-025 | P2 | Expanded client discovery | Cursor, VS Code/Copilot, Windsurf and generic MCP clients |
+
+| KPL-026 | P0 | Focus task contract and scope lock | Immutable request, explicit acceptance criteria, track scope changes and justified exceptions |
+| KPL-027 | P0 | Focus loop and stall detector | Detect redundant failed calls, oscillating diffs and nonprogress without disrupting legitimate retries |
+| KPL-028 | P0 | Focus adaptive execution budgets | Time/tool/retry budgets, progress-aware warning and only supported cancellation |
+| KPL-029 | P0 | Focus evidence gate | Label observed/inferred/unknown, reject unsupported completion claims |
+| KPL-030 | P0 | Focus minimal-change guard | Flag unrelated diffs, refactors and dependencies with reasoned exceptions |
+| KPL-031 | P0 | Focus completion gate | Acceptance criteria verification and stop recommendation, without blocking productive work |
+| KPL-032 | P0 | Controlled baseline benchmark suite | 30–50 coding tasks compared with/without Kepler; speed, quality, loops, drift and cost |
+| KPL-033 | P1 | Focus per-harness policy enforcement | Only warn, approve, block or cancel where compatible native capabilities exist |
+| KPL-034 | P2 | Genesis UI design specification | Design context, tokens, layouts, wireframes/mockups and variants with provenance |
+| KPL-035 | P2 | Genesis preview and code-generation workflow | Approval, design-to-component mapping, project conventions and supported stacks |
+| KPL-036 | P2 | Genesis Vision/Sentinel feedback | Render on demand, compare/validate and bound correction loops |
 
 Each issue should include owner (when assigned), dependencies, security implications, tests and performance targets. IDs are planning identifiers, not existing GitHub issues.

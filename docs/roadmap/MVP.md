@@ -2,7 +2,7 @@
 
 ## Delivery 0 — Foundations
 **Goal:** create observable, lightweight event path from Pi into Rust Core.
-- Cargo workspace, clap CLI, Tokio dispatcher, policy system
+- Cargo workspace, clap CLI, Tokio dispatcher, policy system and Focus event contracts
 - typed versioned events and capability negotiation
 - IPC daemon lifecycle and doctor command
 - SQLite migrations with privacy defaults
@@ -14,7 +14,10 @@
 
 **Exit:** Pi input event reaches Kepler and safely returns; no LLM or browser starts; missing core causes passthrough.
 
-## Delivery 1 — Forge + Memory
+## Delivery 1 — Focus + Forge + Memory
+- minimal Focus task contract, scope monitoring, evidence labels, repetition detection and completion checkpoints
+- adaptive budgets initially warn rather than blindly terminate productive work
+- collect baseline outcomes on identical tasks with Kepler disabled
 - input classifier with passthrough/enrichment
 - preserve original instruction and derived context
 - FTS5 scoped memory retrieval with provenance
@@ -41,7 +44,15 @@
 ## Delivery 5 — Orbit
 - DAG scheduler, isolated worktrees, agent lifecycle support
 
+## Delivery 6 — Genesis (post-MVP)
+- design intent and context extraction, reusable design tokens and preview contract
+- generate design variants and component/code plans using the existing coding agent
+- approval checkpoint for material visual/design changes; Vision and Sentinel validate the result
+- avoid spawning browser/model workers for non-design tasks
+
 ## Global release gates
+- With/without Kepler benchmark on representative tasks, without meaningful correctness regression.
+- Focus overhead and false-positive supervision alerts are measured.
 - End-to-end automatic behavior verified for each claimed harness.
 - CPU/RSS/p95 benchmarks and crash recovery tested.
 - Documented privacy/security defaults and user disable controls.
