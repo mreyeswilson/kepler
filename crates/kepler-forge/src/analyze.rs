@@ -28,6 +28,24 @@ impl Mode {
     }
 }
 
+/// How sure the deterministic rules are about a passthrough. Only `Doubtful` inputs may be sent
+/// to the optional intent model (ADR-0026); `Decisive` ones never cost a model call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Confidence {
+    /// The rules know what this is (task, question, command, acknowledgement, too big...).
+    Decisive,
+    /// Enough text, but no recognizable task shape or question: the rules cannot tell.
+    Doubtful,
+}
+
+/// Coarse class the rules assigned (diagnostics and the corpus test; `None` = rules cannot tell).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleClass {
+    Task,
+    Question,
+    Chat,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskKind {
     Bugfix,
@@ -58,6 +76,7 @@ pub struct Analysis {
     /// Why this mode (stable short code, useful for tests and diagnostics).
     pub reason: &'static str,
     pub spec: DerivedSpec,
+    pub confidence: Confidence,
 }
 
 impl Analysis {
@@ -65,11 +84,24 @@ impl Analysis {
     pub fn original(&self) -> &str {
         &self.original
     }
+
+    /// What the rules decided this input is, or `None` when they cannot tell.
+    pub fn class(&self) -> Option<RuleClass> {
+        match self.reason {
+            "trivial" | "too_short" => Some(RuleClass::Chat),
+            "question" => Some(RuleClass::Question),
+            "command" | "specific" | "vague_task" | "long_with_constraints" | "multi_step" => {
+                Some(RuleClass::Task)
+            }
+            _ => None,
+        }
+    }
 }
 
 const MAX_ANALYZED_BYTES: usize = 16 * 1024;
 const LONG_PROSE_CHARS: usize = 160;
 const MIN_TASK_CHARS: usize = 8;
+const MIN_DOUBTFUL_CHARS: usize = 12;
 
 const BUG_WORDS: &[&str] = &[
     "fix",
@@ -107,6 +139,19 @@ const FEATURE_WORDS: &[&str] = &[
     "agrega",
     "crea",
     "implementa",
+    "crear",
+    "agregar",
+    "añadir",
+    "implementar",
+    "construir",
+    "construye",
+    "write",
+    "escribe",
+    "escribir",
+    "genera",
+    "generar",
+    "integrar",
+    "integra",
 ];
 const REFACTOR_WORDS: &[&str] = &[
     "refactor",
@@ -121,16 +166,57 @@ const REFACTOR_WORDS: &[&str] = &[
     "limpia",
     "limpiar",
     "reestructura",
+    "refactorizar",
+    "renombrar",
+    "simplificar",
+    "reorganizar",
+    "reestructurar",
 ];
 const TEST_WORDS: &[&str] = &["test", "tests", "coverage", "prueba", "pruebas"];
-const DOC_WORDS: &[&str] = &["document", "docs", "readme", "documenta", "documentación"];
+const DOC_WORDS: &[&str] = &[
+    "document",
+    "docs",
+    "readme",
+    "documenta",
+    "documentar",
+    "documentación",
+];
 const PERF_WORDS: &[&str] = &[
     "optimize",
     "faster",
     "slow",
     "performance",
     "optimiza",
+    "optimizar",
+    "acelerar",
     "rápido",
+];
+/// Conversational ways to ask for work ("vamos a crear...", "necesito...", "hay que..."). They
+/// make a following task verb a request even when the sentence starts like a question.
+const LEAD_INS: &[&[&str]] = &[
+    &["vamos", "a"],
+    &["necesito"],
+    &["necesitamos"],
+    &["quiero"],
+    &["queremos"],
+    &["hay", "que"],
+    &["podemos"],
+    &["podrías"],
+    &["puedes"],
+    &["ayúdame", "a"],
+    &["ayudame", "a"],
+    &["me", "ayudas", "a"],
+    &["let's"],
+    &["lets"],
+    &["i", "need"],
+    &["i", "want"],
+    &["we", "need"],
+    &["we", "should"],
+    &["need", "to"],
+    &["can", "we"],
+    &["could", "you"],
+    &["please"],
+    &["por", "favor"],
 ];
 const COMMAND_STARTS: &[&str] = &[
     "run", "execute", "ejecuta", "corre", "git", "cargo", "npm", "pnpm", "yarn", "pytest",
@@ -197,6 +283,7 @@ pub fn analyze(text: &str) -> Analysis {
         mode,
         reason,
         spec,
+        confidence: Confidence::Decisive,
     };
     if let InputClass::Trivial(_) = classify_input(text) {
         return done(Mode::Passthrough, "trivial", DerivedSpec::new());
@@ -213,11 +300,18 @@ pub fn analyze(text: &str) -> Analysis {
     let kind = task_kind(&words);
     let sentences = sentences(text);
 
-    if is_question(&lower, &words, text, kind.is_some()) {
+    let conversational = has_lead_in(&words) && !text.trim_start().starts_with('¿');
+
+    if !conversational && is_question(&lower, &words, text, kind.is_some()) {
         return done(Mode::Passthrough, "question", DerivedSpec::new());
     }
     let Some(kind) = kind else {
-        return done(Mode::Passthrough, "no_task_detected", DerivedSpec::new());
+        let mut a = done(Mode::Passthrough, "no_task_detected", DerivedSpec::new());
+        // Enough words to be a request, nothing the rules recognize: let the model look.
+        if words.len() >= 2 && text.trim().chars().count() >= MIN_DOUBTFUL_CHARS {
+            a.confidence = Confidence::Doubtful;
+        }
+        return a;
     };
     if text.trim().chars().count() < MIN_TASK_CHARS {
         return done(Mode::Passthrough, "too_short", DerivedSpec::new());
@@ -363,6 +457,15 @@ fn is_question(lower: &str, words: &[&str], original: &str, task_like: bool) -> 
         .iter()
         .any(|p| lower.starts_with(p))
         || (!task_like && original.trim_end().ends_with('?'))
+}
+
+fn has_lead_in(words: &[&str]) -> bool {
+    // The lead-in may follow a short interjection ("ok, vamos a...", "oye necesito...").
+    (0..words.len().min(3)).any(|i| {
+        LEAD_INS
+            .iter()
+            .any(|li| words.len() >= i + li.len() && words[i..i + li.len()] == **li)
+    })
 }
 
 fn has_marker(lower_sentence: &str, markers: &[&str]) -> bool {

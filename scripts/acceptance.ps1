@@ -34,6 +34,8 @@ New-Item -ItemType Directory -Path $work | Out-Null
 $env:KEPLER_HOME = Join-Path $work 'home'
 $env:KEPLER_IPC_NAME = 'acc' + [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $env:KEPLER_IDLE_TIMEOUT_SECS = '3'
+# Hermetic: the suite never calls a real model. The Forge model-assist step enables a fake one.
+$env:KEPLER_FORGE_MODEL = 'off'
 $env:GIT_AUTHOR_NAME = 't'; $env:GIT_AUTHOR_EMAIL = 't@t'; $env:GIT_COMMITTER_NAME = 't'; $env:GIT_COMMITTER_EMAIL = 't@t'
 
 $results = New-Object System.Collections.ArrayList
@@ -514,6 +516,56 @@ Step 'ui: starts with a token, refuses without one' {
     "401 without/wrong token, 200 with token (port $($info.port))"
   } finally {
     if ($p -and -not $p.HasExited) { & taskkill /PID $p.Id /T /F | Out-Null }
+  }
+}
+
+# ------------------------------------------------------------------ Forge model assist (fake claude, deterministic)
+Step 'forge model assist (fake claude: note, cache, rules-first, breaker, no recursion)' {
+  $fake = Join-Path (Split-Path -Parent $Kepler) 'examples\fake_claude.exe'
+  if (-not (Test-Path $fake)) {
+    $b = Invoke-Proc 'cargo' @('build', '--release', '--example', 'fake_claude', '-p', 'kepler-cli') $null 600 $repoRoot
+    if ($b.Code -ne 0 -or -not (Test-Path $fake)) { throw ([SkipException]::new("fake_claude example could not be built: $($b.Err)")) }
+  }
+  $log = Join-Path $work 'fake-claude.log'
+  $saved = @{ B = $env:KEPLER_CLAUDE_BIN; M = $env:KEPLER_FORGE_MODEL; L = $env:FAKE_CLAUDE_LOG; X = $env:FAKE_CLAUDE_MODE; H = $env:FAKE_CLAUDE_HOOK_EXE }
+  try {
+    $env:KEPLER_CLAUDE_BIN = $fake
+    Remove-Item Env:\KEPLER_FORGE_MODEL -ErrorAction SilentlyContinue
+    $env:FAKE_CLAUDE_LOG = $log
+    $env:FAKE_CLAUDE_MODE = 'task'
+    $calls = { if (Test-Path $log) { @(Get-Content $log | Where-Object { $_ -match '"args"' }).Count } else { 0 } }
+    $prompt = { param($t) (Hook 'UserPromptSubmit' (@{ session_id = 'acc-fm'; cwd = $work; hook_event_name = 'UserPromptSubmit'; prompt = $t } | ConvertTo-Json -Depth 4)) }
+
+    $r = & $prompt 'Elimina ese gk de todos lados'
+    Assert ($r.Code -eq 0) "exit $($r.Code): $($r.Err)"
+    Assert ($r.Out -match 'model-inferred') "no model-inferred note: $($r.Out)"
+    Assert ((& $calls) -eq 1) "expected 1 model call, got $(& $calls)"
+    $null = & $prompt 'elimina ese GK de todos lados'
+    Assert ((& $calls) -eq 1) 'cache miss: the same prompt called the model again'
+    $d = & $prompt 'Fix the failing test in parser.rs'
+    $q = & $prompt 'hubo actividad?'
+    Assert ((& $calls) -eq 1) 'a decisive prompt reached the model'
+    $e = & $prompt 'Vamos a crear un driver nuevo en lab'
+    Assert ($e.Out -match 'inferred' -and $e.Out -notmatch 'model-inferred' -and (& $calls) -eq 1) "conversational task must be handled by rules: $($e.Out)"
+
+    $env:FAKE_CLAUDE_MODE = 'recurse'; $env:FAKE_CLAUDE_HOOK_EXE = $Kepler
+    $null = & $prompt 'desinstala gitkraken por favor ya'
+    Assert ((& $calls) -eq 2) "recursion: expected exactly 2 fake claude runs in total, got $(& $calls)"
+    Assert ((Get-Content $log -Raw) -match '"nested_hook_exit":0') 'nested hook did not exit 0'
+
+    $env:FAKE_CLAUDE_MODE = 'fail'
+    $null = & $prompt 'una frase rara numero uno'
+    $null = & $prompt 'una frase rara numero dos'
+    $dj = (K @('doctor', '--json') $null 60).Out | ConvertFrom-Json
+    Assert ($dj.forge_model.breaker.open -eq $true) "breaker not open: $($dj.forge_model | ConvertTo-Json -Depth 4)"
+    $n = & $calls
+    $null = & $prompt 'una frase rara numero tres'
+    Assert ((& $calls) -eq $n) 'breaker open but the model was still called'
+    '1 note, cache hit, rules-first (0 calls for decisive/conversational), no recursion, breaker opens after 2 failures'
+  } finally {
+    foreach ($p in @(@('KEPLER_CLAUDE_BIN', 'B'), @('KEPLER_FORGE_MODEL', 'M'), @('FAKE_CLAUDE_LOG', 'L'), @('FAKE_CLAUDE_MODE', 'X'), @('FAKE_CLAUDE_HOOK_EXE', 'H'))) {
+      if ($null -ne $saved[$p[1]]) { Set-Item -Path ("Env:\" + $p[0]) -Value $saved[$p[1]] } else { Remove-Item ("Env:\" + $p[0]) -ErrorAction SilentlyContinue }
+    }
   }
 }
 

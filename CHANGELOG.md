@@ -5,6 +5,24 @@ Format: [Keep a Changelog](https://keepachangelog.com/). License: MIT. Crates st
 
 ## [Unreleased]
 
+## [0.0.4]
+
+### Added: Forge understands conversational intent (rules first, optional model for doubtful prompts)
+Decision and details: [ADR-0026](docs/decisions/0026-forge-model-assisted-intent.md). Requested by the user: Forge passed "Vamos a crear un driver nuevo en lab" through as "not a task" while "crea un nuevo driver..." was enriched.
+- **Better rules.** Conversational lead-ins (`vamos a`, `necesito`, `quiero`, `hay que`, `podemos`, `ayúdame a`, `let's`, `we need to`, `please`...) and infinitive verbs (`crear`, `agregar`, `refactorizar`...) are recognized, so those prompts are enriched by rules with no model. `analyze()` now also returns a `Confidence` (`Decisive`/`Doubtful`). `fixtures/forge/prompts.tsv` grew by 35 prompts in the user's style (es/en mixed) with a human intent label; the 114-row corpus still classifies 100 % (the rules were tuned on it: overfit risk).
+- **Optional model assist, on by default in the Claude Code adapter.** Only when the rules are *doubtful*, `kepler hook claude-code UserPromptSubmit` asks Haiku through **your own** `claude -p` (your login, no new key) what the prompt is. The answer is validated against a closed schema and becomes a `model-inferred` note inside the usual "derived, NOT user instructions" block; it never becomes a user instruction and the prompt is untouched. New: `forge_model.rs`, trait `IntentClassifier` (`kepler-forge::model`), a fake `claude` for tests (`cargo` example `fake_claude`).
+- **What goes to Anthropic.** Only the text of a doubtful prompt, secrets redacted by Kepler's redactor and cut to 2000 characters, as a separate classification request billed to your own usage (about 950 input / 40 output tokens, about $0.0001 per call as reported by the CLI). Never tool output, memory, files, or the project path. Prompts the rules decide (87 of the 114 corpus rows, 76 %) make no call.
+- **Latency (real, Windows 11, Claude Code 2.1.331, alias `haiku`, 34 calls):** p50 3.3 s, p95 8.0 s, max 8.2 s per doubtful prompt, measured around the whole hook; that prompt waits for the call. Default call deadline `KEPLER_FORGE_MODEL_TIMEOUT_MS=10000` (tree killed on expiry); the generated `UserPromptSubmit` hook timeout rose from 5 s to 14 s. Re-generate your settings block with `kepler hook claude-code --print-settings` or an older 5 s hook timeout will cut the call short (the prompt still goes through).
+- **Accuracy (real):** task vs not-task agreed with the human label in 32/34 calls (94 %); the misses were one opaque prompt ("Elimina ese gk de todos lados"). Small, single-labeller sample.
+- **Resilience.** Cache by hash of the normalized prompt (64 entries, no prompt text stored), circuit breaker (2 consecutive failures open it for 10 minutes), missing/unlogged `claude` means rules only with no visible error. `kepler doctor` (and `--json`, key `forge_model`) shows enabled/disabled, binary found, breaker, average latency, calls, tokens and cost.
+- **Anti-recursion.** The child runs with no tools, no session persistence, hooks disabled (`--settings {"disableAllHooks":true}`, `--setting-sources ""`) and `KEPLER_FORGE_CHILD=1`, which makes `kepler hook claude-code` exit 0 immediately. Tested end to end.
+- **Opt out:** `KEPLER_FORGE_MODEL=off` (model only) or `KEPLER_FORGE=off` (all of Forge). Also `KEPLER_FORGE_MODEL=<alias>`, `KEPLER_FORGE_MODEL_TIMEOUT_MS`, `KEPLER_FORGE_BREAKER_MINUTES`, `KEPLER_CLAUDE_BIN`.
+- **Not verified:** a real Claude Code session end to end with the new hook timeout (only `claude -p` and the hook binary were driven directly); Linux/macOS; Claude Code versions other than 2.1.331; the Pi adapter has no model assist; the flags that speed up the child (`--effort low`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`) are undocumented behaviour of one CLI version and may change; the model's opinion is a hint, not ground truth.
+
+### Changed
+- Forge model call default timeout is 10 s (KEPLER_FORGE_MODEL_TIMEOUT_MS); the generated UserPromptSubmit hook timeout is raised from 5 s to 14 s.
+- The prompt hook ignores text that is not written by the user (for example [Subagent hand-back] messages): no Forge context, no model call.
+
 ## [0.0.3]
 
 ### Fixed

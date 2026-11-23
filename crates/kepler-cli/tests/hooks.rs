@@ -32,6 +32,8 @@ impl Env {
             .env("KEPLER_HOME", &self.home)
             .env("KEPLER_IPC_NAME", &self.ipc)
             .env("KEPLER_IDLE_TIMEOUT_SECS", "3")
+            // Hermetic: never call the real `claude` from these tests (see forge_model.rs).
+            .env("KEPLER_FORGE_MODEL", "off")
             .env_remove("KEPLER_GUARDIAN_RULES")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

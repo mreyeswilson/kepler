@@ -235,7 +235,7 @@ fn concurrency_is_bounded_by_max_parallel() {
     let log = e.tmp.join("par.log");
     let l = format!("log={}", log.display());
     let tasks: Vec<_> = (0..6)
-        .map(|i| task(&format!("pc{i}"), &[], &format!("{l};sleep=300")))
+        .map(|i| task(&format!("pc{i}"), &[], &format!("{l};sleep=1000")))
         .collect();
     let run = start(&e, tasks, 2);
     let s = e.orbit.execute(&run).unwrap();

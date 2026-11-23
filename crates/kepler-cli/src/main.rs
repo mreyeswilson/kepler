@@ -2,6 +2,7 @@
 
 #[cfg(windows)]
 mod detach;
+mod forge_model;
 mod hook_claude;
 mod hook_cmd;
 mod inspect;
@@ -295,9 +296,14 @@ async fn doctor_cmd(json: bool) -> ExitCode {
     let db = kepler_storage::dirs::db_path().map_err(|e| e.to_string());
     let report = doctor::run(&Endpoint::from_env(), db.as_deref().map_err(Clone::clone)).await;
     if json {
-        println!("{}", report.to_json());
+        let mut v = report.to_json();
+        if let Some(o) = v.as_object_mut() {
+            o.insert("forge_model".into(), forge_model::doctor_value());
+        }
+        println!("{v}");
     } else {
         print!("{}", report.to_text());
+        print!("{}", forge_model::doctor_text());
     }
     ExitCode::SUCCESS
 }
