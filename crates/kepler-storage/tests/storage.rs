@@ -118,9 +118,9 @@ fn env_file_content_in_tool_output_never_reaches_disk() {
             "output_excerpt": "DB_PASSWORD=ENVLEAK-hunter2\nAPI_KEY=ENVLEAK-abc123\n"
         }),
     );
-    // The same payload through the policy engine is observe-only...
+    // The same payload through the policy engine is flagged by Guardian (Delivery 2)...
     let v = PolicyEngine::default().evaluate(&leak);
-    assert_eq!(v.decision, Decision::passthrough("observe_only"));
+    assert!(matches!(v.decision, Decision::Redact { .. }), "{v:?}");
     // ...and persistence keeps only metadata.
     assert!(w.record_event(EventRecord::from_event(&leak, &v)));
     // A tool call trying to read .env is denied and its reason is stored, not the command.

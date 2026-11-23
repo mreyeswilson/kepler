@@ -35,7 +35,7 @@ Focus tracks the immutable request, scope boundaries, evidence, progress, repeti
 Route on intent, changed files, trust level, available capabilities, latency budget and risk.
 Return passthrough if enrichment fails or budget expires. Never silently bypass a destructive-action permission check.
 
-## Performance targets, not measured results
+## Performance targets (measured values: see [PERFORMANCE.md](../development/PERFORMANCE.md))
 - Idle daemon RAM: target <30 MB excluding external workers.
 - In-process simple event dispatch: target <10 ms.
 - Warm small memory retrieval: target <100 ms.

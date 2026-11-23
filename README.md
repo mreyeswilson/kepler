@@ -2,7 +2,7 @@
 
 **Intelligent Execution Control for Coding Agents** — runtime local-first que reduce desvíos, trabajo innecesario, afirmaciones sin evidencia y tiempos excesivos.
 
-> Estado: núcleo Rust de la Delivery 0 en desarrollo (eventos, políticas, IPC, almacenamiento, CLI básico). Sin integración con ningún harness todavía; ver "Estado de implementación".
+> Estado: núcleo Rust con Forge, Memory y Guardian, servidor MCP mínimo y adaptador Pi con hooks automáticos, todo en desarrollo y **sin verificar contra una sesión real de Pi**; ver "Estado de implementación".
 
 ## Objetivo
 
@@ -64,11 +64,13 @@ Kepler mejora la experiencia de desarrollo con Pi, Claude Code, Codex, Gemini CL
 
 ## Desarrollo
 
-### Estado de implementación (Delivery 0, rama `feat/rust-core-d0`)
+### Estado de implementación (Deliveries 0-2, rama `feat/rust-core-d0`)
 
 Existe un workspace Rust (`crates/`) con tests. **Implementado y probado:** envelope de eventos v1 con fixtures compartidos, negociación de las 8 capacidades, motor de políticas determinista (passthrough por defecto, preflight de herramientas fail-closed), IPC local (Unix socket / named pipe del usuario actual, ver [ADR-0007](docs/decisions/0007-ipc-wire-protocol.md)), daemon lazy con apagado por inactividad, SQLite (WAL, FTS5, migraciones) con redacción de secretos y denylist de rutas, y los comandos `kepler doctor | daemon | emit | version`.
 
-**No implementado todavía:** adaptador Pi (el paquete sigue siendo un esqueleto que no envía eventos), Forge, Memory (solo existe la tabla y su API de almacenamiento), Guardian, Orbit, Sentinel, Vision, MCP, detección de harnesses, binarios/instalación, benchmarks medidos ([notas](docs/development/PERFORMANCE.md)). La licencia sigue pendiente (`publish = false`, `UNLICENSED` en Cargo). El código Unix del transporte aún no se ha ejecutado fuera de Windows; lo cubrirá la matriz de CI.
+**Delivery 1-2 (implementado y probado con tests; ver [backlog](docs/roadmap/BACKLOG.md) para el estado exacto de cada ID):** Forge (clasificador determinista passthrough/enrich/compile/decompose y spec derivada, [ADR-0009](docs/decisions/0009-module-pipeline-and-forge.md)), Memory (FTS5 por alcance, ranking, dedupe, presupuesto de tokens estimados, consolidación al asentarse el agente, controles `kepler memory ...`, [ADR-0010](docs/decisions/0010-memory-storage-and-ranking.md)), Guardian (preflight fail-closed con reglas del usuario, detección de secretos en resultados, presupuesto de contexto, [ADR-0011](docs/decisions/0011-guardian-and-wire-additions.md)), `kepler mcp serve` ([ADR-0012](docs/decisions/0012-mcp-stdio-minimal-server.md)) y `kepler inspect`, y hooks automáticos en `adapters/pi` ([ADR-0013](docs/decisions/0013-pi-automatic-hooks.md)). Mediciones reales en [PERFORMANCE.md](docs/development/PERFORMANCE.md).
+
+**No implementado todavía:** Focus, Orbit, Sentinel, Vision, Genesis, detección de harnesses, binarios/instalación, compresión de salida de herramientas, verificación con una sesión real de Pi y con un cliente MCP de terceros. La licencia sigue pendiente (`publish = false`, `UNLICENSED` en Cargo). El código Unix del transporte aún no se ha ejecutado fuera de Windows; lo cubrirá la matriz de CI.
 
 ```bash
 cargo build --workspace
@@ -77,9 +79,9 @@ cargo run -p kepler-cli -- emit --in-process --json '{...evento v1...}'
 cargo fmt --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
 ```
 
-Los siguientes comandos siguen siendo **propuestas** sin implementar: `kepler init`, `kepler detect`, `kepler mcp serve`.
+Los siguientes comandos siguen siendo **propuestas** sin implementar: `kepler init`, `kepler detect`. Ya existen `doctor | daemon | emit | version | inspect | memory | mcp serve`.
 
-El esqueleto del paquete Pi está en `adapters/pi` (marcado `private: true`, **sin publicación npm ni hooks funcionales**). La futura instalación pública será `pi install npm:@kepler/pi`, sujeta a disponibilidad del nombre y pruebas de publicación.
+El paquete Pi está en `adapters/pi` (marcado `private: true`, **sin publicación npm; hooks implementados pero no verificados en Pi real**). La futura instalación pública será `pi install npm:@kepler/pi`, sujeta a disponibilidad del nombre y pruebas de publicación.
 
 Se contempla detección de Pi, Claude Code, Claude Desktop, Codex, Gemini CLI, OpenCode, Cursor, VS Code/Copilot y otros clientes MCP. **La detección y la instalación automática son requisitos futuros; aún no están implementados.**
 
