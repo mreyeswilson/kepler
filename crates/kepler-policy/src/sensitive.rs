@@ -141,7 +141,11 @@ pub fn resolve_within(root: &Path, candidate: &str) -> Result<PathBuf, PathError
     if is_sensitive_path(candidate) {
         return Err(PathError::Sensitive);
     }
-    let cand = Path::new(candidate);
+    // Treat the Windows separator as a separator on every platform (fail closed): on Unix
+    // it is a legal filename byte, but a backslash-separated parent-dir escape must never
+    // slip past the traversal check.
+    let normalized = candidate.replace('\\', "/");
+    let cand = Path::new(&normalized);
     let joined = if cand.is_absolute() {
         cand.to_path_buf()
     } else {
