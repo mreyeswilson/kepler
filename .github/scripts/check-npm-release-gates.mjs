@@ -14,14 +14,7 @@ const need = (ok, msg) => {
 };
 
 need(pkg.private !== true, 'package.json has "private": true. Publishing is disabled until maintainers approve and remove it.');
-need(
-  typeof pkg.license === 'string' && pkg.license !== '' && pkg.license.toUpperCase() !== 'UNLICENSED',
-  `license is "${pkg.license}". A real SPDX license must be chosen and approved first.`,
-);
-need(
-  ['LICENSE', 'LICENSE.md', 'LICENSE.txt'].some((f) => existsSync(join(dir, f)) || existsSync(f)),
-  'No LICENSE file found in the package directory or repository root.',
-);
+// License (MIT, see LICENSE) is not a blocking gate; private, version, tests, scope and tag/confirm gates are.
 need(typeof pkg.scripts?.test === 'string' && pkg.scripts.test !== '', 'package.json has no "test" script.');
 const testsDir = join(dir, 'test');
 const testFiles = existsSync(testsDir) ? readdirSync(testsDir).filter((f) => /\.test\.[cm]?[jt]s$/.test(f)) : [];

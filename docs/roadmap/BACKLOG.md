@@ -21,7 +21,7 @@
 | KPL-017 | P0 | Pi npm package scaffold | Manifest, explicit extension path and CI dry run; publishing disabled |
 | KPL-018 | P1 | Native binary packaging | Verified binaries and cross-platform installation strategy |
 | KPL-019 | P1 | Pi automatic hook integration | Typed event IPC, tests and safe no-core passthrough |
-| KPL-020 | P1 | npm public release pipeline | Verified scope, license, trusted publishing, approval and version gate |
+| KPL-020 | P1 | npm public release pipeline | Verified scope, trusted publishing, approval and version gate |
 | KPL-021 | P0 | Installed harness/client discovery | Detect Pi, Claude Code and Claude Desktop read-only; report version and integration limits |
 | KPL-022 | P1 | Safe configuration installer | Preview, approval, atomic merge, backup, rollback and uninstall |
 | KPL-023 | P1 | Claude Desktop MCP adapter | MCP stdio integration with explicitly limited automatic capabilities |
@@ -67,7 +67,7 @@ Status is only "done" when code **and** tests exist. Measured performance is not
 | KPL-019 | Partial | `adapters/pi` hooks: input, before_agent_start (labeled system-prompt addition), context (estimate only), tool_call (block on deny/unapproved approval), tool_result (redact), agent_start/agent_settled, session_shutdown; 45 node:test tests and one manual run against the real daemon. **Not verified inside a real Pi session**; package still `private: true` ([ADR-0013](../decisions/0013-pi-automatic-hooks.md)). |
 | KPL-015 | Done (shallow) | `kepler-sentinel` + `kepler-git`: path rules in the daemon on `files.changed`, added-line rules over `git diff` from `kepler sentinel audit`, findings tied to file/line/redacted evidence in `audit_findings` (migration v3), `confirmed` vs `suspected`, bounded ([ADR-0015](../decisions/0015-sentinel-and-findings.md)). **Not implemented:** integration with the project's own lint/test runs, AST/Tree-sitter analysis. Rules are simple substrings, unmeasured false-positive rate. |
 | KPL-016 | Partial | `kepler-vision` (lazy manager, timeouts+kill, capped output, minimal env, localhost allowlist, fake-worker tests) and the private `workers/vision` Playwright worker (stdio JSON, 15 node:test tests, real-process hello) ([ADR-0016](../decisions/0016-vision-worker.md)). **The worker has never run against a real Chromium** (none was downloaded); the DOM probe, screenshots and request interception are unverified in a browser. Not wired to the daemon or hooks. |
-| KPL-018, KPL-020 | Not started | Packaging and the npm pipeline stay blocked (license, real-harness verification). KPL-017 scaffold existed before; publishing stays disabled. |
+| KPL-018, KPL-020 | Not started | Packaging and the npm pipeline stay blocked (real-harness verification; the license, MIT, is decided). KPL-017 scaffold existed before; publishing stays disabled. |
 | KPL-026 | Partial | Focus scope lock: files named in the user input vs changed files, new input restarts the task. The original request is not stored (only file names); explicit acceptance criteria are not tracked ([ADR-0014](../decisions/0014-focus-implementation.md)). |
 | KPL-027 | Done (uncalibrated) | Loop detector: identical calls, repeated failures, failure streaks, oscillating edits; a retry after a change is legitimate. Thresholds are hypotheses. |
 | KPL-028 | Partial | Adaptive budget on tool calls and elapsed time: warns while files change, `recommend_stop` only when stalled. Only advisories: no cancellation anywhere. Tokens/CPU/RAM are not part of the budget. |

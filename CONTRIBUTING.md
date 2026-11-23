@@ -45,5 +45,5 @@ On Windows without Node on `PATH`, add your Node directory first (for example th
 - `adapters/pi` and `workers/vision` stay `private: true`; release gates are in [RELEASING.md](RELEASING.md).
 
 ## License
-Licensing has not been selected; do not assume rights to reuse code outside GitHub's applicable terms until a
-license is published.
+Kepler is released under the [MIT License](LICENSE). By contributing you agree that your contributions are licensed
+under the same terms. New dependencies must have a license accepted by `deny.toml`.

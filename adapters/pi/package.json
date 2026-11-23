@@ -9,7 +9,7 @@
     "kepler",
     "agent"
   ],
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.18"

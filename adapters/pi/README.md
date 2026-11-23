@@ -62,7 +62,7 @@ It is a no-op unless a Kepler core is listening on the endpoint above.
 
 ## Not public
 
-`@kepler/pi` is a provisional name; the `@kepler` npm scope is not verified. `private: true`, `license: UNLICENSED`.
+`@kepler/pi` is a provisional name; the `@kepler` npm scope is not verified. `private: true` (enforced until release approval), `license: MIT`.
 Release gates and the guarded manual procedure are in `docs/distribution/NPM_AND_PI.md` and `RELEASING.md`.
 
 ## Automatic hooks (KPL-019, [ADR-0013](../../docs/decisions/0013-pi-automatic-hooks.md))

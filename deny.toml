@@ -6,7 +6,7 @@
 yanked = "deny"
 
 [licenses]
-# Workspace crates are `publish = false` with license UNLICENSED (pending decision): ignore them.
+# Workspace crates are MIT and `publish = false`: ignore them (private).
 private = { ignore = true }
 confidence-threshold = 0.8
 allow = [

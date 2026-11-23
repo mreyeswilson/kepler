@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "description": "Kepler Vision worker: on-demand Playwright inspection over a stdio JSON protocol (not published; not verified with a real browser)",
-  "license": "UNLICENSED",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.18"
