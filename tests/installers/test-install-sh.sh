@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2015  # "A && B || ko" is the intended pass/fail idiom here
 # Local test of install.sh against a simulated release directory (file:// base URL).
 # Usage: tests/installers/test-install-sh.sh   (needs bash, curl, tar, sha256sum/shasum)
 set -u
