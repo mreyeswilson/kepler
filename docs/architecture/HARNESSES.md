@@ -28,3 +28,6 @@ Investigate `input`, `before_agent_start`, `context`, `tool_call`, `tool_result`
 
 ## Adapter test matrix
 For each version, test: installation, event delivery, input passthrough, context injection, tool preflight (if supported), session recovery, uninstall and missing-daemon fallback.
+
+## Pi distribution
+See [npm and Pi distribution](../distribution/NPM_AND_PI.md). The initial `adapters/pi` package is a **non-functional scaffold** and must not be marketed as an operational extension. Public npm publication stays disabled until all release gates pass.

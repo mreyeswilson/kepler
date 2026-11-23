@@ -18,5 +18,9 @@
 | KPL-014 | P1 | MCP stdio | Discovery and calls tested with compatible client |
 | KPL-015 | P2 | Sentinel diff analysis | Findings tied to changed files and evidence |
 | KPL-016 | P2 | Vision worker | On-demand Playwright with timeout/cleanup |
+| KPL-017 | P0 | Pi npm package scaffold | Manifest, explicit extension path and CI dry run; publishing disabled |
+| KPL-018 | P1 | Native binary packaging | Verified binaries and cross-platform installation strategy |
+| KPL-019 | P1 | Pi automatic hook integration | Typed event IPC, tests and safe no-core passthrough |
+| KPL-020 | P1 | npm public release pipeline | Verified scope, license, trusted publishing, approval and version gate |
 
 Each issue should include owner (when assigned), dependencies, security implications, tests and performance targets. IDs are planning identifiers, not existing GitHub issues.

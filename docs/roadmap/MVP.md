@@ -7,6 +7,8 @@
 - IPC daemon lifecycle and doctor command
 - SQLite migrations with privacy defaults
 - Pi extension proof of integration and fixtures
+- Pi npm package scaffold and no-publish validation workflow
+- document future native binary delivery and npm release gates
 
 **Exit:** Pi input event reaches Kepler and safely returns; no LLM or browser starts; missing core causes passthrough.
 

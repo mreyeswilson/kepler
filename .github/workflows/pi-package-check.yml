@@ -1,0 +1,48 @@
+name: Pi package scaffold
+
+on:
+  push:
+    paths:
+      - 'adapters/pi/**'
+      - '.github/workflows/pi-package-check.yml'
+  pull_request:
+    paths:
+      - 'adapters/pi/**'
+      - '.github/workflows/pi-package-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: adapters/pi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Validate Pi package manifest
+        run: |
+          node --input-type=module -e "
+            import fs from 'node:fs';
+            const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            if (p.private !== true) throw Error('Publishing must remain disabled until release approval');
+            if (!Array.isArray(p.pi?.extensions) || !p.pi.extensions.includes('./extensions/kepler.ts')) throw Error('Missing Pi extension path');
+            for (const path of p.pi.extensions) if (!fs.existsSync(path)) throw Error('Missing extension: ' + path);
+          "
+      - name: Validate npm tarball contents (no publish)
+        run: |
+          npm pack --dry-run --json > /tmp/kepler-pi-pack.json
+          node --input-type=module -e "
+            import fs from 'node:fs';
+            const p=JSON.parse(fs.readFileSync('/tmp/kepler-pi-pack.json','utf8'))[0];
+            const files=new Set(p.files.map(f=>f.path));
+            for (const name of ['package.json','extensions/kepler.ts','README.md']) {
+              if(!files.has(name)) throw Error('Missing package file '+name);
+            }
+            console.log('Package content validated:', [...files].join(', '));
+          "

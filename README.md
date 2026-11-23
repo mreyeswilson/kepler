@@ -53,6 +53,8 @@ Kepler mejora la experiencia de desarrollo con Pi, Claude Code, Codex, Gemini CL
 - [Decisiones de arquitectura](docs/decisions/README.md)
 - [Guía de desarrollo](docs/development/GETTING_STARTED.md)
 - [Instrucciones para agentes](AGENTS.md)
+- [Distribución npm y Pi](docs/distribution/NPM_AND_PI.md)
+- [Paquete Pi (esqueleto)](adapters/pi/README.md)
 
 ## Desarrollo
 
@@ -63,6 +65,8 @@ kepler init
 kepler doctor
 kepler mcp serve
 ```
+
+El esqueleto del paquete Pi está en `adapters/pi` (marcado `private: true`, **sin publicación npm ni hooks funcionales**). La futura instalación pública será `pi install npm:@kepler/pi`, sujeta a disponibilidad del nombre y pruebas de publicación.
 
 **Primera integración objetivo:** Pi Coding Agent. **Primera entrega funcional:** núcleo de eventos + adaptador Pi + Forge y Memory.
 

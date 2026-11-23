@@ -1,7 +1,7 @@
 # Getting started (planned workflow)
 
 ## Current status
-No functional CLI, plugin or Rust source exists yet. This document describes the intended development environment, not a working installer.
+A Pi npm **package scaffold** now exists under `adapters/pi`, but no functional Kepler CLI, hook integration or Rust source exists yet. This document describes the intended development environment, not a working installer.
 
 ## Prerequisites
 - Rust stable toolchain using rustup
@@ -16,6 +16,10 @@ No functional CLI, plugin or Rust source exists yet. This document describes the
 4. Create the Pi extension to forward `input` events.
 5. Add privacy filters, SQLite and memory.
 6. Benchmark idle and event performance.
+
+## Pi package scaffold checks
+
+From `adapters/pi`, run `npm pack --dry-run --json` to inspect the package contents. The manifest is intentionally marked private; do not publish it. See [distribution guide](../distribution/NPM_AND_PI.md).
 
 ## Development quality
 - Run `cargo fmt --check`, `cargo clippy --all-targets --all-features`, `cargo test --workspace` when project code exists.

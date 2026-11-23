@@ -14,6 +14,7 @@ You are contributing to **Kepler**, a Rust-first, local-first AI agent middlewar
 - Avoid unnecessary allocations, dependencies, global background polling, or network calls.
 - Every event has version, provenance, correlation/session IDs, and a bounded payload.
 - No new runtime/cloud dependencies without an explicit ADR.
+- The `adapters/pi` package must stay `private: true` until Rust Core, hook integration, release tests, npm scope ownership and license are approved; never publish or claim it works before then.
 
 ## Safety and quality
 - Never persist API keys, .env content or unredacted sensitive tool output.

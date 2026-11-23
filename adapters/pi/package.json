@@ -1,0 +1,31 @@
+{
+  "name": "@kepler/pi",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pi Coding Agent adapter scaffold for Kepler (not functional yet)",
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "kepler",
+    "agent"
+  ],
+  "license": "UNLICENSED",
+  "type": "module",
+  "files": [
+    "extensions/",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./extensions/kepler.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mreyeswilson/kepler.git",
+    "directory": "adapters/pi"
+  }
+}
