@@ -1,10 +1,18 @@
 # Changelog
 
-Format: [Keep a Changelog](https://keepachangelog.com/). Nothing has been released: no tags, binaries or npm
-packages exist. License: MIT. Everything below is on branch `integration/all` (local, unpushed) and is
-**unreleased** (workspace version `0.0.1`, `publish = false`).
+Format: [Keep a Changelog](https://keepachangelog.com/). License: MIT. Crates stay `publish = false`;
+`adapters/pi` and `workers/vision` stay `private: true` (nothing is published to npm).
 
 ## [Unreleased]
+
+## [0.0.2]
+
+First tagged release. Integrates `feat/functional-core`, `feat/functional-modules` and `feat/claude-code-adapter`
+(Vision, Orbit agent tasks, Genesis UI, Claude Code hooks, Guardian/Sentinel).
+
+**Verified:** Windows 11 only (`scripts/acceptance.ps1` 25/25; Rust, Pi and Vision tests).
+**Not verified:** Linux/macOS behaviour of the new modules before CI, Playwright's Chrome/Chromium, a real remote
+model, interactive TUIs, and the `acceptance.yml` workflow on GitHub (it had never run before this release).
 
 ### Integration (`integration/all`)
 Merges `feat/functional-core`, `feat/functional-modules` and `feat/claude-code-adapter`. The Claude Code hooks ADR was renumbered from 0020 to ADR-0025 (0020 is the Guardian shell analysis ADR). `scripts/acceptance.ps1` now also covers `kepler hook claude-code` (cold), `kepler sentinel check` and `kepler ui` (token required). Verified on Windows 11 only; Linux/macOS, Playwright Chromium, a real remote model, interactive TUIs and the new GitHub workflows are untested.
