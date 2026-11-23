@@ -243,6 +243,7 @@ pub fn run_check(
         .env("CI", "1")
         .env("NO_COLOR", "1")
         .env("FORCE_COLOR", "0")
+        .env("CARGO_TERM_COLOR", "never")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
