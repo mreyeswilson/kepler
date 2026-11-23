@@ -1,6 +1,6 @@
 # Kepler Genesis — interface design intelligence
 
-**Status:** planned post-MVP module; not implemented.
+**Status:** planned post-MVP module; **not implemented**, no UI exists. The implementation path and prerequisites are in [ADR-0018](../decisions/0018-genesis-deferred-design.md).
 
 ## Purpose
 Turn user requests into professional, consistent UI designs and implementation plans. Unlike **Vision**, which inspects existing rendered UI, **Genesis** proposes layouts, design systems and screen/component solutions.

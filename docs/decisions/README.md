@@ -21,3 +21,5 @@ New ADR format: Context, Decision, Consequences, Alternatives, Status.
 - [ADR-0015: Sentinel and audit findings](0015-sentinel-and-findings.md) (implemented in `kepler-sentinel`, `kepler-git`)
 - [ADR-0016: Vision worker](0016-vision-worker.md) (implemented in `kepler-vision`, `workers/vision`)
 - [ADR-0017: Orbit DAG scheduler](0017-orbit-dag-scheduler.md) (implemented in `kepler-orbit`)
+- [ADR-0018: Genesis stays design-only](0018-genesis-deferred-design.md) (not implemented)
+- [ADR-0019: rusqlite 0.41 and MSRV 1.89](0019-rusqlite-upgrade-and-msrv.md) (supersedes the version pin of ADR-0008)
