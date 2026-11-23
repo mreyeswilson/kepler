@@ -26,6 +26,7 @@ $h = (Get-FileHash (Join-Path $rel "$stem.zip") -Algorithm SHA256).Hash.ToLower(
 $url = ([Uri]$rel.ToString()).AbsoluteUri.TrimEnd('/')
 # Compress-Archive in 5.1 may write backslash entry names; the installer normalizes them.
 
+$shim = Join-Path $work 'bin'; New-Item -ItemType Directory -Path $shim | Out-Null; Set-Content -LiteralPath (Join-Path $shim 'gh.cmd') -Value '@exit /b 1' -Encoding ASCII
 function Invoke-Installer([string]$base, [string]$dir, [hashtable]$envs = @{}, [string[]]$more = @()) {
     $psi = New-Object Diagnostics.ProcessStartInfo
     $psi.FileName = (Get-Command powershell.exe).Source
@@ -34,6 +35,7 @@ function Invoke-Installer([string]$base, [string]$dir, [hashtable]$envs = @{}, [
     $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
     if ($base) { $psi.EnvironmentVariables['KEPLER_BASE_URL'] = $base }
     $psi.EnvironmentVariables['KEPLER_INSTALL_DIR'] = $dir
+    $psi.EnvironmentVariables['PATH'] = $shim + ';' + $psi.EnvironmentVariables['PATH']
     foreach ($k in $envs.Keys) { $psi.EnvironmentVariables[$k] = $envs[$k] }
     $p = [Diagnostics.Process]::Start($psi)
     $out = $p.StandardOutput.ReadToEnd() + $p.StandardError.ReadToEnd()
@@ -112,9 +114,23 @@ try {
     $d8b = Join-Path $work 'i8b'
     $r = Invoke-TokenInstaller $apiUrl $d8b @{} @('-Version', '9.9.9')
     if ($r.Code -eq 0 -and (Test-Path "$d8b\kepler.exe")) { Ok 'token: -Version via API' } else { Ko "token -Version: $($r.Out)" }
+    # anonymous first: a token in the environment must not push a public release through the API
     $d8c = Join-Path $work 'i8c'
-    $r = Invoke-TokenInstaller $apiUrl $d8c @{ KEPLER_GITHUB_TOKEN = ''; GH_TOKEN = 'ghp_OTHER' }
-    if ($r.Code -eq 0 -and (Test-Path "$d8c\kepler.exe")) { Ok 'token: GH_TOKEN accepted' } else { Ko "GH_TOKEN: $($r.Out)" }
+    $r = Invoke-Installer $url $d8c @{ GH_TOKEN = 'ghp_OTHER'; KEPLER_API_URL = 'https://api.invalid' }
+    if ($r.Code -eq 0 -and (Test-Path "$d8c\kepler.exe") -and $r.Out -notmatch 'GitHub API') { Ok 'public release + GH_TOKEN installs anonymously' } else { Ko "anonymous first: $($r.Out)" }
+    # refused anonymous download (empty mirror) + GH_TOKEN => retries through the API
+    $empty = Join-Path $work 'empty'; New-Item -ItemType Directory -Path $empty | Out-Null
+    $d8h = Join-Path $work 'i8h'
+    $r = Invoke-Installer ([Uri]$empty).AbsoluteUri $d8h @{ GH_TOKEN = 'ghp_OTHER'; KEPLER_API_URL = $apiUrl }
+    if ($r.Code -eq 0 -and (Test-Path "$d8h\kepler.exe") -and $r.Out -match 'retrying with a GitHub token') { Ok 'refused anonymous download falls back to the token' } else { Ko "fallback: $($r.Out)" }
+    # refused and no token => clear error
+    $d8i = Join-Path $work 'i8i'
+    $r = Invoke-Installer ([Uri]$empty).AbsoluteUri $d8i
+    if ($r.Code -ne 0 -and $r.Out -match 'set KEPLER_GITHUB_TOKEN') { Ok 'refused anonymous download without token fails clearly' } else { Ko "no token: $($r.Out)" }
+    # non-web exception (invalid URL) must not blow up on .Response under StrictMode
+    $d8j = Join-Path $work 'i8j'
+    $r = Invoke-Installer 'https://bad host/x' $d8j @{ GH_TOKEN = 'ghp_OTHER' }
+    if ($r.Code -ne 0 -and $r.Out -match 'could not download SHA256SUMS' -and $r.Out -notmatch "Response") { Ok 'non-web exception reported cleanly' } else { Ko "non-web: $($r.Out)" }
     # checksum still mandatory in token mode
     $badRel = Join-Path $work 'badrel'; Copy-Item $rel $badRel -Recurse
     Add-Content -LiteralPath (Join-Path $badRel "$stem.zip") -Value 'junk'

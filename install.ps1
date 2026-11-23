@@ -21,7 +21,7 @@
 #                          for tests and mirrors. Checksums are still verified.
 #   KEPLER_GITHUB_TOKEN    token for private repos (also GH_TOKEN, GITHUB_TOKEN, or `gh auth token`). With a
 #                          token, assets come from the GitHub API (api.github.com, HTTPS only; the token is
-#                          never printed or stored). Ignored when KEPLER_BASE_URL is set.
+#                          never printed or stored). Downloads are anonymous first.
 #   KEPLER_API_URL         API base override (https://api.github.com or file://; tests only)
 #   KEPLER_ARCH            override of the detected architecture (testing only)
 # When run as a file you can also pass: -Help  -Uninstall  -Version X.Y.Z  -Dir <path>
@@ -127,21 +127,27 @@ The SHA-256 of the downloaded zip is always verified against the release SHA256S
         }
     }
 
-    # Optional GitHub token (private repos). Only sent to https://api.github.com; never printed or stored.
-    $token = $null
-    if (-not $env:KEPLER_BASE_URL) {
+    # Optional GitHub token (private repos). Downloads are anonymous first; a token is used only when
+    # KEPLER_GITHUB_TOKEN is set explicitly (and no KEPLER_BASE_URL mirror is given), or as a fallback when the
+    # anonymous download is refused (401/403/404). Only sent to https://api.github.com; never printed or stored.
+    function Resolve-Token {
+        $t = $null
         foreach ($n in 'KEPLER_GITHUB_TOKEN', 'GH_TOKEN', 'GITHUB_TOKEN') {
             $v = [Environment]::GetEnvironmentVariable($n)
-            if ($v -and -not $token) { $token = $v }
+            if ($v -and -not $t) { $t = $v }
         }
-        if (-not $token -and (Get-Command gh -ErrorAction SilentlyContinue)) {
-            try { $token = (& gh auth token 2>$null | Select-Object -First 1) } catch { $token = $null }
+        if (-not $t -and (Get-Command gh -ErrorAction SilentlyContinue)) {
+            try { $t = (& gh auth token 2>$null | Select-Object -First 1) } catch { $t = $null }
         }
-        if ($token) {
-            $token = ([string]$token) -replace '\s', ''
-            if ($token -notmatch '^[A-Za-z0-9_.-]+$') { throw 'the GitHub token contains unexpected characters; refusing to use it' }
+        if ($t) {
+            $t = ([string]$t) -replace '\s', ''
+            if ($t -notmatch '^[A-Za-z0-9_.-]+$') { throw 'the GitHub token contains unexpected characters; refusing to use it' }
         }
+        return $t
     }
+    $token = $null
+    $mode = 'public'
+    if (-not $env:KEPLER_BASE_URL -and $env:KEPLER_GITHUB_TOKEN) { $token = Resolve-Token; if ($token) { $mode = 'api' } }
     $api = $env:KEPLER_API_URL
     if (-not $api) { $api = 'https://api.github.com' }
     $api = $api.TrimEnd('/')
@@ -179,8 +185,20 @@ The SHA-256 of the downloaded zip is always verified against the release SHA256S
         }
     }
 
+    # Anonymous download that reports the HTTP status (never touches .Response on non-web exceptions).
+    function Get-RemoteStatus([string]$url, [string]$dest) {
+        $out = [pscustomobject]@{ Ok = $true; Code = 0; Message = '' }
+        try { Get-Remote $url $dest } catch {
+            $ex = $_.Exception
+            $out.Ok = $false; $out.Message = $ex.Message
+            if ($url -like 'file://*') { $out.Code = 404 }
+            elseif ($ex -is [System.Net.WebException] -and $ex.Response) { $out.Code = [int]$ex.Response.StatusCode }
+            elseif ($ex.PSObject.Properties['Response'] -and $ex.Response -and $ex.Response.PSObject.Properties['StatusCode']) { $out.Code = [int]$ex.Response.StatusCode }
+        }
+        return $out
+    }
     function Get-Asset([string]$name, [string]$dest) {
-        if ($token) {
+        if ($mode -eq 'api') {
             $a = @($script:releaseJson.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1)
             if ($a.Count -eq 0) { throw "release has no asset named $name" }
             Get-Api ([string]$a[0].url) $dest 'application/octet-stream'
@@ -193,19 +211,27 @@ The SHA-256 of the downloaded zip is always verified against the release SHA256S
     New-Item -ItemType Directory -Path $tmp | Out-Null
     try {
         Write-Say "Detected target: $target"
-        if ($token) {
+        $sums = Join-Path $tmp 'SHA256SUMS'
+        if ($mode -eq 'public') {
+            Write-Say "Downloading SHA256SUMS from $base"
+            $st = Get-RemoteStatus "$base/SHA256SUMS" $sums
+            if (-not $st.Ok) {
+                if (@(401, 403, 404) -notcontains $st.Code) { throw "could not download SHA256SUMS (does the release exist?): $($st.Message)" }
+                $token = Resolve-Token
+                if (-not $token) { throw 'could not download SHA256SUMS (the release does not exist or the repository is private); set KEPLER_GITHUB_TOKEN to use the GitHub API' }
+                Write-Say 'Anonymous download was refused; retrying with a GitHub token through the API'
+                $mode = 'api'
+            }
+        }
+        if ($mode -eq 'api') {
             if ($api -ne 'https://api.github.com' -and $api -notlike 'file://*') { throw 'KEPLER_API_URL must be https://api.github.com (or file:// for tests)' }
             if ($version) { $relUrl = "$api/repos/$repo/releases/tags/v$version" } else { $relUrl = "$api/repos/$repo/releases/latest" }
             Write-Say "Using a GitHub token: downloading through the GitHub API ($api)"
             $rj = Join-Path $tmp 'release.json'
             try { Get-Api $relUrl $rj 'application/vnd.github+json' } catch { throw "could not read the release metadata (does the release exist, and can the token read the repo?): $($_.Exception.Message)" }
             $script:releaseJson = Get-Content -LiteralPath $rj -Raw | ConvertFrom-Json
-        } else {
-            Write-Say "Downloading SHA256SUMS from $base"
+            try { Get-Asset 'SHA256SUMS' $sums } catch { throw "could not download SHA256SUMS (does the release exist?): $($_.Exception.Message)" }
         }
-        $sums = Join-Path $tmp 'SHA256SUMS'
-        try { Get-Asset 'SHA256SUMS' $sums } catch { throw "could not download SHA256SUMS (does the release exist?): $($_.Exception.Message)" }
-
         # Lines look like "<sha256>  kepler-<version>-<target>.zip"
         $entries = @()
         foreach ($line in Get-Content -LiteralPath $sums) {

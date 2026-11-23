@@ -7,7 +7,7 @@ packages exist. License: MIT. Everything below is on branch `feat/rust-core-d0` 
 ## [Unreleased]
 
 ### Added
-- **Private-repo testing**: `install.sh`/`install.ps1` accept an optional GitHub token (`KEPLER_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token`) and then download assets through the GitHub API (`Authorization` only to `https://api.github.com`, never printed or stored; SHA-256 still mandatory). Tests in `tests/installers/`; README section "Probar con el repo privado".
+- **Private-repo testing** (anonymous download first; token only if `KEPLER_GITHUB_TOKEN` is set or as a fallback after a 401/403/404): `install.sh`/`install.ps1` accept an optional GitHub token (`KEPLER_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, then `gh auth token`) and then download assets through the GitHub API (`Authorization` only to `https://api.github.com`, never printed or stored; SHA-256 still mandatory). Tests in `tests/installers/`; README section "Probar con el repo privado".
 
 ### Fixed
 - **Release workflow**: `actions/attest-build-provenance` now runs only when the repository is not private (unsupported for user-owned private repos, which failed every build); a `::notice::` explains the skip. Upload and publish do not depend on attestation, and `gh attestation verify` only applies to releases built from a non-private repo.
