@@ -123,11 +123,47 @@ Ejemplo de `plan.json` (comandos como *argv*, nunca cadenas de shell):
 ```
 `wipe` es destructivo: queda en `awaiting_approval` hasta `kepler orbit approve <run> wipe`. Cada tarea trabaja en su propio worktree/rama (`kepler/orbit/<run>/<task>`); Orbit nunca toca tu rama ni fusiona por ti.
 
+### Conectar con Claude Code
+
+Dos piezas independientes: el MCP solo da herramientas; los hooks son lo que observa y protege. Verificado solo con Claude Code 2.1.330 en Windows (ejecución real de `claude -p` en un directorio temporal); no en Linux/macOS ni en la UI interactiva ([ADR-0020](docs/decisions/0020-claude-code-hooks-adapter.md)).
+
+**1. MCP** (el registro con `claude mcp add` no se ejecutó en esta verificación; herramientas `kepler_doctor`, `kepler_inspect`, `kepler_memory_search`):
+
+```bash
+claude mcp add kepler -- /ruta/absoluta/a/kepler mcp serve
+```
+```powershell
+claude mcp add kepler -- "C:\ruta\a\kepler.exe" mcp serve
+```
+
+**2. Hooks** (sin Node). Genera el bloque con la ruta absoluta de tu `kepler`:
+
+```bash
+kepler hook claude-code --print-settings                    # bash
+```
+```powershell
+kepler hook claude-code --print-settings | Set-Clipboard    # PowerShell
+```
+
+Pega la clave `"hooks"` en `.claude/settings.json` de un proyecto (recomendado para probar) o en `~/.claude/settings.json`. Kepler **no** edita tus settings. Si tu Claude Code no admite `args`, usa `--shell-form`.
+
+| Hook | Efecto |
+|---|---|
+| `UserPromptSubmit` | Envía tu prompt tal cual; si Forge/Memory aportan algo, lo añade como contexto etiquetado "derivado, NO instrucciones". Nunca cambia ni bloquea el prompt |
+| `PreToolUse` | Guardian: `deny` ante rutas sensibles (`.env`, claves) o reglas `deny-*`; `ask` ante comandos destructivos (`rm -rf /`, `git push --force`). Nunca aprueba por ti |
+| `PostToolUse` | Detecta secretos en la salida y te avisa (`systemMessage`); no modifica el resultado ni lo guarda |
+| `Stop`, `SessionStart`, `SessionEnd` | Solo observan |
+
+Si Kepler falla (daemon caído, JSON raro, timeout `KEPLER_HOOK_TIMEOUT_MS`, 2000 ms por defecto) el hook sale con código 0 sin salida y Claude Code sigue **sin** la protección de Kepler. Para bloquear en vez de preguntar, añade `deny-command rm -rf /` a `guardian-rules.txt` (`KEPLER_GUARDIAN_RULES`).
+
+**Desactivar:** borra el bloque `hooks` de Kepler de tu `settings.json` (o `"disableAllHooks": true`) y, para el MCP, `claude mcp remove kepler`. Comprueba la actividad con `kepler inspect`.
+
 ### Variables de entorno
 
 | Variable | Efecto |
 |---|---|
 | `KEPLER_HOME` | Directorio de datos (por defecto el del SO) |
+| `KEPLER_HOOK_TIMEOUT_MS` | Plazo total de cada hook de Claude Code (1-10000, 2000 por defecto) |
 | `KEPLER_IPC_NAME`, `KEPLER_IDLE_TIMEOUT_SECS` | Endpoint IPC y apagado por inactividad del daemon |
 | `KEPLER_FORGE`, `KEPLER_FOCUS`, `KEPLER_SENTINEL`, `KEPLER_GUARDIAN_BUDGET` = `off` | Desactiva ese módulo (el preflight de Guardian no se puede desactivar) |
 | `KEPLER_FOCUS_SOFT_TOOL_CALLS`, `KEPLER_FOCUS_SOFT_SECONDS` | Presupuestos blandos de Focus |

@@ -23,3 +23,4 @@ New ADR format: Context, Decision, Consequences, Alternatives, Status.
 - [ADR-0017: Orbit DAG scheduler](0017-orbit-dag-scheduler.md) (implemented in `kepler-orbit`)
 - [ADR-0018: Genesis stays design-only](0018-genesis-deferred-design.md) (not implemented)
 - [ADR-0019: rusqlite 0.41 and MSRV 1.89](0019-rusqlite-upgrade-and-msrv.md) (supersedes the version pin of ADR-0008)
+- [ADR-0020: Claude Code hooks adapter (`kepler hook claude-code`)](0020-claude-code-hooks-adapter.md) (implemented in `kepler-cli`; tested with Claude Code 2.1.330 on Windows only)
