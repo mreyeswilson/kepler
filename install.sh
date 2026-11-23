@@ -121,7 +121,9 @@ install_main() {
     esac
     shift
   done
-  [ -n "$dir" ] && [ "$dir" != "/.local/bin" ] || die "cannot determine the install directory (HOME is unset); set KEPLER_INSTALL_DIR"
+  if [ -z "$dir" ] || [ "$dir" = "/.local/bin" ]; then
+    die "cannot determine the install directory (HOME is unset); set KEPLER_INSTALL_DIR"
+  fi
 
   if [ "$uninstall" -eq 1 ]; then
     if [ -f "$dir/kepler" ]; then
