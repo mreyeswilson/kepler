@@ -337,3 +337,76 @@ fn print_settings_is_pasteable_json_with_absolute_exe() {
         }
     }
 }
+
+fn utf16_bytes(s: &str, le: bool, bom: bool) -> Vec<u8> {
+    let mut out = Vec::new();
+    if bom {
+        out.extend(if le { [0xFF, 0xFE] } else { [0xFE, 0xFF] });
+    }
+    for u in s.encode_utf16() {
+        out.extend(if le { u.to_le_bytes() } else { u.to_be_bytes() });
+    }
+    out
+}
+
+#[test]
+fn powershell_style_encodings_are_understood() {
+    // Windows PowerShell 5.1 pipes: UTF-8 with BOM + CRLF, or UTF-16 depending on $OutputEncoding.
+    let e = Env::new();
+    let j = json!({"session_id":"s","cwd":"C:\tmp","tool_name":"Bash","tool_input":{"command":"rm -rf /"}})
+        .to_string();
+    let crlf = format!("{j}\r\n");
+    let inputs = [
+        [&[0xEF, 0xBB, 0xBF][..], crlf.as_bytes()].concat(),
+        crlf.clone().into_bytes(),
+        utf16_bytes(&crlf, true, true),
+        utf16_bytes(&crlf, false, true),
+        utf16_bytes(&j, true, false),
+    ];
+    for (i, bytes) in inputs.iter().enumerate() {
+        let o = e.run_with(
+            e.cmd(&["hook", "claude-code", "PreToolUse", "--no-autostart"]),
+            bytes,
+        );
+        assert_eq!(o.status.code(), Some(0), "case {i}");
+        let v: Value = serde_json::from_slice(&o.stdout).unwrap_or_else(|_| {
+            panic!(
+                "case {i}: no verdict, stderr={}",
+                String::from_utf8_lossy(&o.stderr)
+            )
+        });
+        assert_eq!(
+            v["hookSpecificOutput"]["permissionDecision"], "ask",
+            "case {i}"
+        );
+    }
+}
+
+#[test]
+fn unreadable_json_exits_0_with_short_stderr_and_debug_detail() {
+    let e = Env::new();
+    let payload = b"{\"command\": \"rm -rf / TOPSECRETWORD\" nope";
+    let o = e.run_with(
+        e.cmd(&["hook", "claude-code", "PreToolUse", "--no-autostart"]),
+        payload,
+    );
+    assert_eq!(o.status.code(), Some(0));
+    assert!(o.stdout.is_empty());
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(
+        err.contains("not valid JSON") && err.contains("KEPLER_HOOK_DEBUG=1"),
+        "{err}"
+    );
+    assert!(!err.contains("TOPSECRETWORD"));
+    assert!(err.lines().count() <= 2);
+    let mut c = e.cmd(&["hook", "claude-code", "PreToolUse", "--no-autostart"]);
+    c.env("KEPLER_HOOK_DEBUG", "1");
+    let o = e.run_with(c, payload);
+    let err = String::from_utf8_lossy(&o.stderr).to_string();
+    assert!(
+        err.contains("kepler: debug:") && err.contains("encoding utf-8"),
+        "{err}"
+    );
+    assert!(!err.contains("TOPSECRETWORD"));
+    assert_eq!(o.status.code(), Some(0));
+}

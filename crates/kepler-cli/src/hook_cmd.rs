@@ -68,8 +68,85 @@ fn claude_code(args: &ClaudeCodeArgs) -> Option<String> {
     if raw.len() as u64 > MAX_STDIN_BYTES {
         return None;
     }
-    let outcome = process(ev, &raw, args.no_autostart, &Endpoint::from_env())?;
+    let input = match parse_stdin(&raw) {
+        Ok(v) => v,
+        Err(why) => {
+            // Never the payload itself. Claude Code shows hook stderr only in verbose mode.
+            eprintln!("kepler: hook {}: stdin is not valid JSON ({}); ignored (set KEPLER_HOOK_DEBUG=1 for details)", ev.name(), why.short);
+            if std::env::var_os("KEPLER_HOOK_DEBUG").is_some_and(|v| v == "1") {
+                eprintln!("kepler: debug: {}", why.detail);
+            }
+            return None;
+        }
+    };
+    let outcome = process(ev, &input, args.no_autostart, &Endpoint::from_env())?;
     render_output(ev, &outcome)
+}
+
+pub struct StdinError {
+    pub short: &'static str,
+    pub detail: String,
+}
+
+/// Decode the hook's stdin leniently: UTF-8 (with or without BOM), UTF-16 LE/BE (with BOM, or
+/// detected from NUL bytes, as Windows PowerShell 5.1 pipes can produce), surrounding whitespace
+/// ignored. Returns the parsed JSON.
+pub fn parse_stdin(raw: &[u8]) -> Result<Value, StdinError> {
+    let (text, enc) = decode_text(raw).map_err(|d| StdinError {
+        short: "undecodable text",
+        detail: d,
+    })?;
+    let t = text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
+    if t.is_empty() {
+        return Err(StdinError {
+            short: "empty",
+            detail: format!("empty stdin ({} bytes, {enc})", raw.len()),
+        });
+    }
+    serde_json::from_str(t).map_err(|e| StdinError {
+        short: "parse error",
+        detail: format!(
+            "{e}; {} bytes, encoding {enc}, first bytes {:02x?}",
+            raw.len(),
+            &raw[..raw.len().min(4)]
+        ),
+    })
+}
+
+fn decode_text(raw: &[u8]) -> Result<(String, &'static str), String> {
+    let utf16 = |b: &[u8], le: bool| -> Result<String, String> {
+        let units = b.as_chunks::<2>().0.iter().map(|c| {
+            if le {
+                u16::from_le_bytes(*c)
+            } else {
+                u16::from_be_bytes(*c)
+            }
+        });
+        char::decode_utf16(units)
+            .collect::<Result<String, _>>()
+            .map_err(|e| format!("invalid UTF-16: {e}"))
+    };
+    if let Some(b) = raw.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8(b.to_vec())
+            .map(|s| (s, "utf-8+bom"))
+            .map_err(|e| e.to_string());
+    }
+    if let Some(b) = raw.strip_prefix(&[0xFF, 0xFE]) {
+        return utf16(b, true).map(|s| (s, "utf-16le+bom"));
+    }
+    if let Some(b) = raw.strip_prefix(&[0xFE, 0xFF]) {
+        return utf16(b, false).map(|s| (s, "utf-16be+bom"));
+    }
+    // No BOM: JSON starts with an ASCII char, so a NUL in the first two bytes betrays UTF-16.
+    if raw.len() >= 2 && raw[0] != 0 && raw[1] == 0 {
+        return utf16(raw, true).map(|s| (s, "utf-16le"));
+    }
+    if raw.len() >= 2 && raw[0] == 0 && raw[1] != 0 {
+        return utf16(raw, false).map(|s| (s, "utf-16be"));
+    }
+    String::from_utf8(raw.to_vec())
+        .map(|s| (s, "utf-8"))
+        .map_err(|e| e.to_string())
 }
 
 fn timeout_from_env() -> Duration {
@@ -83,12 +160,11 @@ fn timeout_from_env() -> Duration {
 /// Parse, map and send. `None` = nothing to do (malformed input, unmappable payload, no runtime).
 fn process(
     ev: HookEvent,
-    raw: &[u8],
+    input: &Value,
     no_autostart: bool,
     endpoint: &Endpoint,
 ) -> Option<EmitOutcome> {
-    let input: Value = serde_json::from_slice(raw).ok()?;
-    let env = build_envelope(ev, &input, &new_ctx())?;
+    let env = build_envelope(ev, input, &new_ctx())?;
     let total = timeout_from_env();
     // Guardian preflight is a security boundary: keep a copy to evaluate locally if the daemon
     // cannot answer in time (cold start, load, crash).
@@ -265,5 +341,63 @@ mod tests {
                 reason: "hook_timeout".into()
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod stdin_tests {
+    use super::*;
+
+    const J: &str = "{\"a\":1,\"t\":\"caf\u{e9} \u{1f600}\"}";
+
+    fn utf16(s: &str, le: bool, bom: bool) -> Vec<u8> {
+        let mut out = Vec::new();
+        if bom {
+            out.extend(if le { [0xFF, 0xFE] } else { [0xFE, 0xFF] });
+        }
+        for u in s.encode_utf16() {
+            out.extend(if le { u.to_le_bytes() } else { u.to_be_bytes() });
+        }
+        out
+    }
+
+    #[test]
+    fn accepts_bom_utf16_crlf_and_padding() {
+        let want: Value = serde_json::from_str(J).unwrap();
+        let mut cases: Vec<Vec<u8>> = vec![
+            J.as_bytes().to_vec(),
+            [&[0xEF, 0xBB, 0xBF][..], J.as_bytes()].concat(),
+            [J.as_bytes(), b"\r\n"].concat(),
+            [&[0xEF, 0xBB, 0xBF][..], J.as_bytes(), b"\r\n"].concat(),
+            [b"  \r\n", J.as_bytes(), b"\n\n "].concat(),
+        ];
+        for (le, bom) in [(true, true), (false, true), (true, false), (false, false)] {
+            cases.push(utf16(J, le, bom));
+            cases.push(utf16(&format!("{J}\r\n"), le, bom));
+        }
+        for (i, c) in cases.iter().enumerate() {
+            assert_eq!(
+                parse_stdin(c).unwrap_or_else(|e| panic!("case {i}: {}", e.detail)),
+                want,
+                "case {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_garbage_without_leaking_payload() {
+        for raw in [
+            &b""[..],
+            b"   \r\n",
+            b"not json",
+            b"{",
+            &[0xff, 0xfe, 0xfd],
+            &[0xC3, 0x28],
+        ] {
+            assert!(parse_stdin(raw).is_err());
+        }
+        let e = parse_stdin(b"{\"secret\": nope}").unwrap_err();
+        assert!(!e.short.contains("secret"));
+        assert!(!e.detail.contains("secret"), "{}", e.detail);
     }
 }
