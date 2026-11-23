@@ -148,7 +148,7 @@ Pega la clave `"hooks"` en `.claude\settings.json` de un proyecto (recomendado p
 | `PostToolUse` | Detecta secretos en la salida y te avisa (`systemMessage`); no modifica el resultado ni lo guarda |
 | `Stop`, `SessionStart`, `SessionEnd` | Solo observan |
 
-Si Kepler falla (daemon caído, JSON raro, timeout `KEPLER_HOOK_TIMEOUT_MS`, 2000 ms por defecto) el hook sale con código 0 sin salida y Claude Code sigue **sin** la protección de Kepler. Para bloquear en vez de preguntar, añade `deny-command rm -rf /` a `guardian-rules.txt` (`KEPLER_GUARDIAN_RULES`).
+Si Kepler falla (daemon caído, JSON raro, timeout `KEPLER_HOOK_TIMEOUT_MS`, 2000 ms por defecto) el hook sale con código 0 sin salida (Claude Code sigue sin Kepler), salvo `PreToolUse`: ahí Guardian se evalúa localmente (en proceso) para que un daemon frío no deje sin protección. Para bloquear en vez de preguntar, añade `deny-command rm -rf /` a `guardian-rules.txt` (`KEPLER_GUARDIAN_RULES`).
 
 **Desactivar:** borra el bloque `hooks` de Kepler de tu `settings.json` (o `"disableAllHooks": true`) y, para el MCP, `claude mcp remove kepler`. Comprueba la actividad con `kepler inspect`.
 

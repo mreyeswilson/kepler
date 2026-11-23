@@ -7,6 +7,7 @@
 
 use crate::hook_claude::{build_envelope, render_output, Ctx, HookEvent};
 use clap::{Args, Subcommand};
+use kepler_core::emit::emit_in_process;
 use kepler_core::{emit_one_shot, EmitOptions, EmitOutcome};
 use kepler_ipc::Endpoint;
 use serde_json::{json, Value};
@@ -89,6 +90,9 @@ fn process(
     let input: Value = serde_json::from_slice(raw).ok()?;
     let env = build_envelope(ev, &input, &new_ctx())?;
     let total = timeout_from_env();
+    // Guardian preflight is a security boundary: keep a copy to evaluate locally if the daemon
+    // cannot answer in time (cold start, load, crash).
+    let fallback = (ev == HookEvent::PreToolUse).then(|| env.clone());
     let rt = crate::runtime().ok()?;
     let outcome = rt.block_on(async {
         let spawn = crate::spawn_daemon;
@@ -99,6 +103,10 @@ fn process(
         };
         deadline(total, emit_one_shot(endpoint, env, &opts)).await
     });
+    if let (Some(e), EmitOutcome::Passthrough { .. }) = (fallback, &outcome) {
+        // Same engine and Guardian rules as the daemon, minus storage-backed modules.
+        return Some(emit_in_process(e));
+    }
     Some(outcome)
 }
 

@@ -203,13 +203,58 @@ fn lifecycle_events_are_accepted_and_silent() {
 }
 
 #[test]
-fn core_down_is_passthrough_exit_0() {
+fn core_down_is_passthrough_for_non_security_events_and_local_guardian_for_preflight() {
     let e = Env::new();
-    let p =
-        json!({"session_id":"s","cwd":"/p","tool_name":"Bash","tool_input":{"command":"rm -rf /"}});
-    let (code, out) = e.hook("PreToolUse", &p.to_string(), &["--no-autostart"]);
+    // Non-security events: no core => no output.
+    let p = json!({"session_id":"s","cwd":"/p","prompt":"hello"});
+    let (code, out) = e.hook("UserPromptSubmit", &p.to_string(), &["--no-autostart"]);
     assert_eq!(code, 0);
-    assert!(out.is_none(), "no core => no verdict => no output: {out:?}");
+    assert!(out.is_none(), "{out:?}");
+    // PreToolUse: Guardian is evaluated in-process when the core is down (fail closed).
+    let (code, out) = e.hook(
+        "PreToolUse",
+        &json!({"session_id":"s","cwd":"/p","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}).to_string(),
+        &["--no-autostart"],
+    );
+    assert_eq!(code, 0);
+    assert_eq!(decision(&out), "ask");
+    let (_, out) = e.hook(
+        "PreToolUse",
+        &json!({"session_id":"s","cwd":"/p","tool_name":"Read","tool_input":{"file_path":"C:\\proj\\.env"}}).to_string(),
+        &["--no-autostart"],
+    );
+    assert_eq!(decision(&out), "deny");
+    // Harmless commands stay silent.
+    let (_, out) = e.hook(
+        "PreToolUse",
+        &json!({"session_id":"s","cwd":"/p","tool_name":"Bash","tool_input":{"command":"cargo test"}}).to_string(),
+        &["--no-autostart"],
+    );
+    assert!(out.is_none());
+}
+
+#[test]
+fn cold_start_without_daemon_still_protects() {
+    // No daemon, autostart enabled, and a deadline too short for the daemon to come up:
+    // the preflight must still answer (ask for rm -rf /, deny for .env).
+    let e = Env::new();
+    for (payload, want) in [
+        (
+            json!({"session_id":"s1","cwd":"C:\\tmp","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf /"}}),
+            "ask",
+        ),
+        (
+            json!({"session_id":"s1","cwd":"C:\\tmp","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"C:\\proj\\.env"}}),
+            "deny",
+        ),
+    ] {
+        let mut c = e.cmd(&["hook", "claude-code", "PreToolUse"]);
+        c.env("KEPLER_HOOK_TIMEOUT_MS", "1");
+        let o = e.run_with(c, payload.to_string().as_bytes());
+        assert_eq!(o.status.code(), Some(0));
+        let v: Value = serde_json::from_slice(&o.stdout).expect("a verdict, not silence");
+        assert_eq!(v["hookSpecificOutput"]["permissionDecision"], want);
+    }
 }
 
 #[test]
@@ -249,12 +294,10 @@ fn malformed_and_odd_input_never_breaks_claude_code() {
 }
 
 #[test]
-fn timeout_is_passthrough() {
+fn timeout_is_passthrough_for_non_security_events() {
     let e = Env::new();
-    let p =
-        json!({"session_id":"s","cwd":"/p","tool_name":"Bash","tool_input":{"command":"rm -rf /"}});
-    // 1 ms cannot cover connecting to a daemon that has to be autostarted.
-    let mut c = e.cmd(&["hook", "claude-code", "PreToolUse"]);
+    let p = json!({"session_id":"s","cwd":"/p","prompt":"Refactor the parser, keep tests green."});
+    let mut c = e.cmd(&["hook", "claude-code", "UserPromptSubmit"]);
     c.env("KEPLER_HOOK_TIMEOUT_MS", "1");
     let o = e.run_with(c, p.to_string().as_bytes());
     assert_eq!(o.status.code(), Some(0));
