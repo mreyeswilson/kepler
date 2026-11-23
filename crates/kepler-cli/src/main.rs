@@ -2,6 +2,8 @@
 
 #[cfg(windows)]
 mod detach;
+mod inspect;
+mod mcp_cmd;
 mod memory_cmd;
 
 use clap::{Parser, Subcommand};
@@ -25,6 +27,13 @@ use std::time::Duration;
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Subcommand)]
+enum McpCmd {
+    /// Serve MCP over stdio (tools: kepler_doctor, kepler_inspect, kepler_memory_search).
+    /// MCP gives the agent callable tools only; it does not intercept prompts or tool calls.
+    Serve,
 }
 
 #[derive(Subcommand)]
@@ -58,6 +67,17 @@ enum Command {
         /// Evaluate locally without any daemon or persistence.
         #[arg(long)]
         in_process: bool,
+    },
+    /// Recent event metadata, memory counters and token metrics (read-only).
+    Inspect {
+        /// How many recent events/metrics to show.
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
+    },
+    /// Model Context Protocol server.
+    Mcp {
+        #[command(subcommand)]
+        cmd: McpCmd,
     },
     /// Inspect, search, export, purge or disable local memory.
     Memory {
@@ -94,6 +114,17 @@ fn main() -> ExitCode {
             emit(&raw, no_autostart, in_process)
         }
         Command::Memory { cmd } => memory_cmd::run(cmd),
+        Command::Mcp { cmd: McpCmd::Serve } => mcp_cmd::serve(),
+        Command::Inspect { limit } => match inspect::inspect_value(limit) {
+            Ok(v) => {
+                println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("kepler: {e}");
+                ExitCode::FAILURE
+            }
+        },
         Command::Doctor { json } => block_on(doctor_cmd(json)),
         Command::Daemon {
             idle_timeout_secs,

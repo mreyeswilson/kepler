@@ -152,6 +152,7 @@ dependencies = [
  "kepler-core",
  "kepler-events",
  "kepler-ipc",
+ "kepler-mcp",
  "kepler-memory",
  "kepler-storage",
  "serde_json",
@@ -198,6 +199,13 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "kepler-mcp"
+version = "0.0.1"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

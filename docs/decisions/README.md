@@ -15,3 +15,4 @@ New ADR format: Context, Decision, Consequences, Alternatives, Status.
 - [ADR-0009: Module pipeline, derived-context labels and Forge](0009-module-pipeline-and-forge.md) (implemented in `kepler-policy`, `kepler-forge`)
 - [ADR-0010: Memory storage v2, ranking, consolidation and controls](0010-memory-storage-and-ranking.md) (implemented in `kepler-storage`, `kepler-memory`)
 - [ADR-0011: Guardian and additive wire values](0011-guardian-and-wire-additions.md) (implemented in `kepler-policy`, `kepler-core`)
+- [ADR-0012: MCP stdio server implemented in-tree](0012-mcp-stdio-minimal-server.md) (implemented in `kepler-mcp`)

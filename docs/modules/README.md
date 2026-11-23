@@ -7,13 +7,13 @@
 
 
 ## Forge — Prompt Compiler
-**Trigger:** every user input, with a fast passthrough classifier. Modes: passthrough, enrich, compile, decompose. Preserve exact original prompt and label all inferred constraints; never silently change requested intent. LLM invocation only when valuable and explicitly available.
+**Trigger:** every user input, with a fast passthrough classifier. Modes: passthrough, enrich, compile, decompose. Preserve exact original prompt and label all inferred constraints; never silently change requested intent. LLM invocation only when valuable and explicitly available. *Status (Delivery 1):* deterministic classifier and derived spec implemented, no LLM path ([ADR-0009](../decisions/0009-module-pipeline-and-forge.md)).
 
 ## Memory — Context and knowledge
-**Trigger:** task start, relevant context request, settlement/checkpoint. FTS5 retrieval scoped by project/session/branch. Consolidation keeps durable decisions with provenance and supersession rules. Do not store all chats or secrets.
+**Trigger:** task start, relevant context request, settlement/checkpoint. FTS5 retrieval scoped by project/session/branch. Consolidation keeps durable decisions with provenance and supersession rules. Do not store all chats or secrets. *Status (Delivery 1):* implemented, see [ADR-0010](../decisions/0010-memory-storage-and-ranking.md).
 
 ## Guardian — Token/context optimization
-**Trigger:** context preparation, tool result processing when interceptable. Estimate tokens by model family; collect actual usage only when harness exposes it. Compress redundant output while retaining errors, paths, line numbers and acceptance criteria. No unsupported claims of proxy control.
+**Trigger:** context preparation, tool result processing when interceptable. *Status (Delivery 2):* implemented as the tool preflight/result scan plus a budget stage ([ADR-0011](../decisions/0011-guardian-and-wire-additions.md)); compression of tool output is not implemented. Estimate tokens by model family; collect actual usage only when harness exposes it. Compress redundant output while retaining errors, paths, line numbers and acceptance criteria. No unsupported claims of proxy control.
 
 ## Orbit — Multiagent orchestration
 **Trigger:** complex task when supported and permitted. DAG scheduler, bounded concurrency, worktrees, child process supervision, retries, cancel, conflict checks and checkpoints. Do not spawn agents merely because installed.

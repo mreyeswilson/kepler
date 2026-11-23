@@ -287,3 +287,65 @@ fn memory_controls_add_search_export_disable_purge() {
     assert!(o.status.success());
     assert_eq!(env.json(&["memory", "stats", "--json"]).1["total"], 0);
 }
+
+#[test]
+fn mcp_serve_speaks_json_rpc_over_stdio_with_a_real_client_flow() {
+    let env = Env::new();
+    env.run(&[
+        "memory",
+        "add",
+        "the release branch is stable-2 and we squash merge",
+        "--project",
+        "p1",
+    ]);
+    let mut child = env
+        .cmd(&["mcp", "serve"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let requests = [
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}"#,
+        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"kepler_doctor","arguments":{}}}"#,
+        r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"kepler_memory_search","arguments":{"query":"which branch for release","project":"p1"}}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"kepler_inspect","arguments":{"limit":5}}}"#,
+        r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"kepler_memory_search","arguments":{"query":"which branch","project":"someone-else"}}}"#,
+    ];
+    for r in requests {
+        writeln!(stdin, "{r}").unwrap();
+    }
+    drop(stdin); // EOF ends the server
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success());
+    let replies: Vec<Value> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(replies.len(), 6, "the notification must not be answered");
+    assert_eq!(replies[0]["result"]["protocolVersion"], "2025-06-18");
+    assert_eq!(replies[1]["result"]["tools"].as_array().unwrap().len(), 3);
+    let text = |i: usize| {
+        replies[i]["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    let doctor: Value = serde_json::from_str(&text(2)).unwrap();
+    assert_eq!(doctor["runtime"]["llm_or_network_calls"], false);
+    assert!(
+        text(3).contains("stable-2") && text(3).contains("ESTIMATED"),
+        "{}",
+        text(3)
+    );
+    let inspect: Value = serde_json::from_str(&text(4)).unwrap();
+    assert_eq!(inspect["memory"]["total"], 1);
+    assert!(text(5).contains("no relevant memories"));
+
+    // `kepler inspect` is the same data from the terminal.
+    let (_, v) = env.json(&["inspect", "--limit", "5"]);
+    assert_eq!(v["memory"]["total"], 1);
+}
