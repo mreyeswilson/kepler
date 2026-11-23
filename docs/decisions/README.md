@@ -29,3 +29,4 @@ New ADR format: Context, Decision, Consequences, Alternatives, Status.
 - [ADR-0023: Focus calibration, advisory display in Pi](0023-focus-calibration-and-advisory-display.md) (implemented in `kepler-focus`, `adapters/pi`)
 - [ADR-0024: Genesis local UI](0024-genesis-local-ui.md) (implemented in `kepler-ui`)
 - [ADR-0025: Claude Code hooks adapter (`kepler hook claude-code`)](0025-claude-code-hooks-adapter.md) (implemented in `kepler-cli`; tested with Claude Code 2.1.330 on Windows only)
+- [ADR-0026: Forge may ask the user's own Claude (Haiku) when its rules are in doubt](0026-forge-model-assisted-intent.md) (relaxes ADR-0009 "no model" for Forge only, opt-out; implemented in `kepler-forge`, `kepler-cli`)

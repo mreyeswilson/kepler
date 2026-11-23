@@ -139,6 +139,7 @@ dependencies = [
  "clap",
  "kepler-core",
  "kepler-events",
+ "kepler-forge",
  "kepler-ipc",
  "kepler-mcp",
  "kepler-memory",
@@ -192,6 +193,7 @@ version = "0.0.2"
 dependencies = [
  "kepler-events",
  "kepler-policy",
+ "serde_json",
 ]
 
 [[package]]

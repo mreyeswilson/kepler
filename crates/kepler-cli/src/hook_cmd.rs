@@ -49,6 +49,11 @@ pub fn run(cmd: HookCmd) -> ExitCode {
     if args.print_settings {
         return print_settings(args.shell_form);
     }
+    // Anti-recursion (ADR-0026): the `claude -p` that Forge's model assist spawns inherits this
+    // variable and would otherwise fire the user's global Kepler hooks again.
+    if std::env::var_os(crate::forge_model::CHILD_GUARD).is_some() {
+        return ExitCode::SUCCESS;
+    }
     // Panics must not turn into a non-zero exit that Claude Code reports as a hook error.
     let r = std::panic::catch_unwind(|| claude_code(&args));
     if let Ok(Some(out)) = r {
@@ -183,7 +188,69 @@ fn process(
         // Same engine and Guardian rules as the daemon, minus storage-backed modules.
         return Some(emit_in_process(e));
     }
+    if ev == HookEvent::UserPromptSubmit {
+        return Some(with_model_note(input, outcome));
+    }
     Some(outcome)
+}
+
+/// Model-assisted intent (ADR-0026). Runs here, outside the policy engine's 50 ms per-module
+/// budget, with its own deadline, and only when the deterministic rules are doubtful. Any
+/// failure leaves the daemon's verdict exactly as it was.
+fn with_model_note(input: &Value, outcome: EmitOutcome) -> EmitOutcome {
+    use crate::forge_model::{
+        add_usage, consult, now_secs, ClaudeCliClassifier, ModelConfig, Store,
+    };
+    use kepler_policy::{Decision, Verdict};
+    let Some(text) = input.get("prompt").and_then(Value::as_str) else {
+        return outcome;
+    };
+    if kepler_forge::analyze(text).confidence != kepler_forge::Confidence::Doubtful {
+        return outcome;
+    }
+    // Only when nothing from Forge is already in the verdict.
+    let eligible = match &outcome {
+        EmitOutcome::Passthrough { .. } => true,
+        EmitOutcome::Verdict(v) => match &v.decision {
+            Decision::Passthrough { .. } => true,
+            Decision::Enrich { derived } => !derived.iter().any(|d| d.source == "forge"),
+            _ => false,
+        },
+        EmitOutcome::Rejected { .. } => false,
+    };
+    let cfg = ModelConfig::from_env();
+    if !eligible || !cfg.enabled {
+        return outcome;
+    }
+    let store = Store::open();
+    let cls = ClaudeCliClassifier::new(&cfg);
+    let (note, why) = consult(&cfg, &cls, &store, text, now_secs());
+    if let Some(u) = cls.usage.take() {
+        add_usage(&store, u);
+    }
+    if std::env::var_os("KEPLER_HOOK_DEBUG").is_some_and(|v| v == "1") {
+        eprintln!("kepler: debug: forge model: {why:?}");
+    }
+    let Some(note) = note else {
+        return outcome;
+    };
+    match outcome {
+        EmitOutcome::Verdict(mut v) => {
+            v.decision = match v.decision {
+                Decision::Enrich { mut derived } => {
+                    derived.push(note);
+                    Decision::Enrich { derived }
+                }
+                _ => Decision::Enrich {
+                    derived: vec![note],
+                },
+            };
+            EmitOutcome::Verdict(v)
+        }
+        _ => EmitOutcome::Verdict(Verdict::new(Decision::Enrich {
+            derived: vec![note],
+        })),
+    }
 }
 
 /// Hard wall-clock bound over the whole attempt (connect, autostart, request).
@@ -236,9 +303,10 @@ pub fn rfc3339_utc(secs: u64, millis: u32) -> String {
     )
 }
 
-/// (event, matcher, timeout seconds). Short timeouts: Kepler's own budget is 2 s.
+/// (event, matcher, timeout seconds). Short timeouts: Kepler's own budget is 2 s. The prompt hook
+/// also covers the optional model assist (default 6 s, ADR-0026): 2 s core + 6 s model + margin.
 pub const HOOK_TABLE: [(&str, Option<&str>, u32); 6] = [
-    ("UserPromptSubmit", None, 5),
+    ("UserPromptSubmit", None, 10),
     (
         "PreToolUse",
         Some("Bash|Write|Edit|MultiEdit|NotebookEdit|Read"),
@@ -316,7 +384,7 @@ mod tests {
             assert_eq!(h["type"], "command");
             assert_eq!(h["command"], "C:/Tools/kepler.exe");
             assert_eq!(h["args"], json!(["hook", "claude-code", event]));
-            assert!(h["timeout"].as_u64().unwrap() <= 5);
+            assert!(h["timeout"].as_u64().unwrap() <= 10);
         }
         let s = settings_block("/opt/it's/kepler", true);
         let c = s["hooks"]["Stop"][0]["hooks"][0]["command"]
