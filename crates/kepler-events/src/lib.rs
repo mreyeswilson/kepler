@@ -4,6 +4,7 @@
 //! deliberately strict: unknown versions, unknown fields, oversized input and
 //! malformed identifiers are rejected with a stable [`EventError::code`].
 
+pub mod capabilities;
 mod envelope;
 mod error;
 mod payload;
