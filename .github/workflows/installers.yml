@@ -1,0 +1,66 @@
+name: Installers check
+
+on:
+  push:
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'tests/installers/**'
+      - '.github/scripts/**'
+      - '.github/workflows/installers.yml'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'tests/installers/**'
+      - '.github/scripts/**'
+      - '.github/workflows/installers.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: installers-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install-sh:
+    name: install.sh (shellcheck + local release test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: shellcheck (preinstalled on the runner image)
+        run: shellcheck --shell=sh install.sh && shellcheck --shell=bash tests/installers/test-install-sh.sh
+      - name: Syntax check with dash
+        run: dash -n install.sh
+      - name: Test against a simulated release (checksum ok / bad / unsupported arch)
+        run: bash tests/installers/test-install-sh.sh
+
+  install-ps1:
+    name: install.ps1 (Windows PowerShell 5.1 local release test)
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Test against a simulated release
+        shell: powershell
+        run: ./tests/installers/test-install-ps1.ps1
+
+  release-gates:
+    name: npm release gate script tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '22'
+      - run: node --test .github/scripts/check-npm-release-gates.test.mjs

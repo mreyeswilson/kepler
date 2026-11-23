@@ -1,0 +1,207 @@
+#!/bin/sh
+# Kepler installer for Linux and macOS (x86_64, aarch64).
+#
+#   curl -fsSL https://raw.githubusercontent.com/mreyeswilson/kepler/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/mreyeswilson/kepler/main/install.sh | sh -s -- --help
+#
+# Read this script before running it. What it does:
+#   1. detects OS/arch and picks the matching GitHub Release archive,
+#   2. downloads SHA256SUMS and the archive over HTTPS,
+#   3. verifies the SHA-256 of the archive and ABORTS if it does not match,
+#   4. extracts only the `kepler` binary into the install directory (no sudo),
+#   5. runs `kepler version` once to confirm it starts.
+# No telemetry. Nothing else downloaded is executed.
+#
+# Environment:
+#   KEPLER_VERSION      release to install, e.g. 0.1.0 or v0.1.0 (default: latest)
+#   KEPLER_INSTALL_DIR  install directory (default: $HOME/.local/bin)
+#   KEPLER_REPO         GitHub repository owner/name (default: mreyeswilson/kepler)
+#   KEPLER_BASE_URL     override of the release download base URL (https:// or file://).
+#                       Intended for tests and mirrors; checksums are still verified.
+#   KEPLER_OS/KEPLER_ARCH  override `uname -s` / `uname -m` (testing only)
+
+set -eu
+
+REPO="${KEPLER_REPO:-mreyeswilson/kepler}"
+
+say() { printf '%s\n' "$*"; }
+err() { printf 'kepler-install: error: %s\n' "$*" >&2; }
+die() { err "$*"; exit 1; }
+
+usage() {
+  cat <<'EOF'
+Kepler installer
+
+Usage: install.sh [--version X.Y.Z] [--dir DIR] [--uninstall] [--help]
+
+  --version X.Y.Z  install this release (default: latest; or set KEPLER_VERSION)
+  --dir DIR        install directory (default: $HOME/.local/bin; or set KEPLER_INSTALL_DIR)
+  --uninstall      remove the installed `kepler` binary from the install directory
+  --help           show this help
+
+Supported: Linux and macOS on x86_64 and aarch64. Windows: use install.ps1.
+The SHA-256 of the downloaded archive is always verified against the release SHA256SUMS.
+EOF
+}
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+fetch() { # fetch URL DEST
+  case "$1" in
+    https://*)
+      if have curl; then
+        curl -fsSL --proto '=https' --tlsv1.2 --retry 2 -o "$2" "$1"
+      elif have wget; then
+        wget -q --https-only -O "$2" "$1"
+      else
+        die "curl or wget is required"
+      fi
+      ;;
+    file://*)
+      have curl || die "curl is required for file:// base URLs"
+      curl -fsSL -o "$2" "$1"
+      ;;
+    *) die "refusing non-HTTPS URL: $1" ;;
+  esac
+}
+
+sha256_of() { # sha256_of FILE -> hex digest
+  if have sha256sum; then
+    sha256sum "$1" | cut -d ' ' -f 1
+  elif have shasum; then
+    shasum -a 256 "$1" | cut -d ' ' -f 1
+  elif have openssl; then
+    openssl dgst -sha256 "$1" | sed 's/^.*= *//'
+  else
+    die "no SHA-256 tool found (need sha256sum, shasum or openssl)"
+  fi
+}
+
+detect_target() {
+  os="${KEPLER_OS:-$(uname -s)}"
+  arch="${KEPLER_ARCH:-$(uname -m)}"
+  case "$os" in
+    Linux) os_part="unknown-linux-gnu" ;;
+    Darwin) os_part="apple-darwin" ;;
+    MINGW* | MSYS* | CYGWIN*) die "Windows detected: use install.ps1 (see the README)" ;;
+    *) die "unsupported operating system: $os (supported: Linux, macOS)" ;;
+  esac
+  case "$arch" in
+    x86_64 | amd64) arch_part="x86_64" ;;
+    aarch64 | arm64) arch_part="aarch64" ;;
+    *) die "unsupported architecture: $arch (supported: x86_64, aarch64)" ;;
+  esac
+  # Rosetta: an x86_64 shell on Apple Silicon should get the native binary.
+  if [ -z "${KEPLER_ARCH:-}" ] && [ "$os" = "Darwin" ] && [ "$arch_part" = "x86_64" ] && have sysctl; then
+    if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = "1" ]; then
+      arch_part="aarch64"
+    fi
+  fi
+  if [ "$os" = "Linux" ] && have ldd && ldd --version 2>&1 | grep -qi musl; then
+    err "warning: musl libc detected; release binaries are built for glibc and may not run"
+  fi
+  TARGET="${arch_part}-${os_part}"
+}
+
+install_main() {
+  version="${KEPLER_VERSION:-}"
+  dir="${KEPLER_INSTALL_DIR:-${HOME:-}/.local/bin}"
+  uninstall=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --help | -h) usage; return 0 ;;
+      --uninstall) uninstall=1 ;;
+      --version)
+        [ $# -ge 2 ] || die "--version needs a value"
+        version="$2"; shift ;;
+      --dir)
+        [ $# -ge 2 ] || die "--dir needs a value"
+        dir="$2"; shift ;;
+      *) usage >&2; die "unknown option: $1" ;;
+    esac
+    shift
+  done
+  [ -n "$dir" ] && [ "$dir" != "/.local/bin" ] || die "cannot determine the install directory (HOME is unset); set KEPLER_INSTALL_DIR"
+
+  if [ "$uninstall" -eq 1 ]; then
+    if [ -f "$dir/kepler" ]; then
+      rm -f "$dir/kepler"
+      say "Removed $dir/kepler. User data (~/.kepler or your configured data dir) was not touched."
+    else
+      say "Nothing to remove: $dir/kepler does not exist."
+    fi
+    return 0
+  fi
+
+  detect_target
+
+  version="${version#v}"
+  if [ -n "$version" ]; then
+    case "$version" in
+      *[!0-9A-Za-z.+-]* | "") die "invalid version: $version" ;;
+    esac
+  fi
+  if [ -n "${KEPLER_BASE_URL:-}" ]; then
+    base="${KEPLER_BASE_URL%/}"
+  elif [ -n "$version" ]; then
+    base="https://github.com/${REPO}/releases/download/v${version}"
+  else
+    base="https://github.com/${REPO}/releases/latest/download"
+  fi
+
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/kepler-install.XXXXXX")" || die "cannot create a temporary directory"
+  trap 'rm -rf "$tmp"' EXIT INT TERM HUP
+
+  say "Detected target: $TARGET"
+  say "Downloading SHA256SUMS from $base"
+  fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS" || die "could not download SHA256SUMS (does the release exist?)"
+
+  # Lines look like "<sha256>  kepler-<version>-<target>.tar.gz"
+  if [ -n "$version" ]; then
+    archive="kepler-${version}-${TARGET}.tar.gz"
+  else
+    archive="$(awk -v t="-${TARGET}.tar.gz" '{ f=$2; sub(/^\*/, "", f); n=length(f); m=length(t); if (n>m && substr(f,1,7)=="kepler-" && substr(f,n-m+1)==t) { print f; exit } }' "$tmp/SHA256SUMS")"
+    [ -n "$archive" ] || die "SHA256SUMS lists no archive for $TARGET"
+  fi
+  expected="$(awk -v a="$archive" '{ f=$2; sub(/^\*/, "", f); if (f==a) { print $1; exit } }' "$tmp/SHA256SUMS")"
+  [ -n "$expected" ] || die "SHA256SUMS has no entry for $archive"
+  case "$expected" in
+    *[!0-9a-fA-F]* | "") die "malformed checksum for $archive" ;;
+  esac
+  [ "${#expected}" -eq 64 ] || die "malformed checksum for $archive"
+
+  say "Downloading $archive"
+  fetch "$base/$archive" "$tmp/$archive" || die "could not download $archive"
+
+  actual="$(sha256_of "$tmp/$archive")"
+  expected_lc="$(printf '%s' "$expected" | tr 'A-F' 'a-f')"
+  if [ "$actual" != "$expected_lc" ]; then
+    die "SHA-256 mismatch for $archive (expected $expected_lc, got $actual); aborting, nothing installed"
+  fi
+  say "SHA-256 verified."
+
+  have tar || die "tar is required"
+  stem="${archive%.tar.gz}"
+  mkdir "$tmp/x"
+  tar -xzf "$tmp/$archive" -C "$tmp/x" "$stem/kepler" || die "archive does not contain $stem/kepler"
+  [ -f "$tmp/x/$stem/kepler" ] || die "archive does not contain a regular file $stem/kepler"
+
+  mkdir -p "$dir" || die "cannot create $dir"
+  cp "$tmp/x/$stem/kepler" "$dir/.kepler.new.$$" || die "cannot write to $dir"
+  chmod 755 "$dir/.kepler.new.$$"
+  mv -f "$dir/.kepler.new.$$" "$dir/kepler"
+  say "Installed $dir/kepler"
+
+  "$dir/kepler" version || die "installed binary failed to run 'kepler version'"
+
+  case ":${PATH:-}:" in
+    *":$dir:"*) ;;
+    *)
+      say ""
+      say "Note: $dir is not in your PATH. Add it, e.g.:"
+      say "  export PATH=\"$dir:\$PATH\""
+      ;;
+  esac
+}
+
+install_main "$@"
