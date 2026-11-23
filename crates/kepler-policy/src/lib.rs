@@ -17,6 +17,7 @@ pub mod guardian;
 mod preflight;
 pub mod redact;
 pub mod sensitive;
+pub mod shell;
 pub mod tokens;
 
 pub use classify::{classify_input, InputClass};
@@ -28,5 +29,5 @@ pub use engine::{
 pub use guardian::{
     BudgetStage, Guardian, GuardianRules, DEFAULT_CONTEXT_BUDGET_TOKENS, MAX_RULES,
 };
-pub use preflight::preflight_tool_call;
+pub use preflight::{preflight_tool_call, preflight_tool_call_with_roots};
 pub use tokens::{estimate_tokens, Basis, ModelFamily, TokenCount};
