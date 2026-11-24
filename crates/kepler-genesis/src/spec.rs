@@ -526,15 +526,12 @@ fn candidate(c: &mut Ctx, v: &Value, path: &str) -> R<Candidate> {
 /// Extract the single JSON object from the model's text: either the whole text or one fenced
 /// block. Anything else around it is rejected.
 fn json_text(raw: &str) -> Option<&str> {
-    let t = raw.trim();
-    if t.starts_with('{') && t.ends_with('}') {
-        return Some(t);
-    }
-    let inner = t
-        .strip_prefix("```json")
-        .or_else(|| t.strip_prefix("```"))?;
-    let inner = inner.trim().strip_suffix("```")?.trim();
-    (inner.starts_with('{') && inner.ends_with('}')).then_some(inner)
+    // The slice from the first `{` to the last `}` (models sometimes add a sentence or a fence).
+    // It must still parse as one object satisfying the closed schema; what surrounds it is
+    // discarded, never used.
+    let start = raw.find('{')?;
+    let end = raw.rfind('}')?;
+    (end > start).then(|| &raw[start..=end])
 }
 
 /// Validate a model answer. `known_tokens` are the project's design-token names.
@@ -653,9 +650,9 @@ pub(crate) mod tests {
     fn fenced_json_is_accepted_but_prose_around_it_is_not() {
         let a = answer(vec![good_candidate()]);
         assert!(parse_answer(&format!("```json\n{a}\n```"), &known(), 1).is_ok());
-        assert_eq!(
-            parse_answer(&format!("Sure! {a}"), &known(), 1),
-            Err(SpecError::NotJson)
+        assert!(
+            parse_answer(&format!("Sure! {a} Hope it helps."), &known(), 1).is_ok(),
+            "prose around one object is discarded"
         );
         assert_eq!(
             parse_answer("I cannot do that", &known(), 1),

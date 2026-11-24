@@ -195,6 +195,7 @@ h1,h2,h3{margin:0}
 .c h3{font-size:20px}
 .c p{margin:0}
 .map{display:inline-block;font-size:10px;font-family:ui-monospace,Consolas,monospace;color:var(--muted);border:1px solid var(--border);border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:middle}
+.btn .map{color:inherit;border-color:currentColor}
 .lbl{display:block;font-size:13px;margin-bottom:4px}
 .inp{height:36px;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);background:var(--bg)}
 .inp.area{height:72px}

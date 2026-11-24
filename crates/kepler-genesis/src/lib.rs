@@ -128,6 +128,10 @@ pub fn design(
         )
         .map_err(GenesisError::Model)?;
     let latency_ms = started.elapsed().as_millis() as u64;
+    // Debugging aid: write the raw model answer to a file the user names.
+    if let Some(p) = std::env::var_os("KEPLER_GENESIS_DUMP").filter(|p| !p.is_empty()) {
+        let _ = std::fs::write(p, &reply.text);
+    }
     let parsed =
         spec::parse_answer(&reply.text, &ctx.tokens.names(), n).map_err(GenesisError::Spec)?;
 
