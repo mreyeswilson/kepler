@@ -1,6 +1,6 @@
 # ADR-0012: MCP stdio server implemented in-tree (no new dependency)
 
-**Status:** Accepted (implemented in Delivery 2: `kepler-mcp`, `kepler mcp serve`)
+**Status:** Accepted (implemented in Delivery 2: `kepler-mcp`, `kepler mcp serve`). The "no write tools" rule is amended by [ADR-0030](0030-mcp-tools-for-orbit-and-modules.md).
 
 ## Context
 KPL-014 needs an MCP stdio server with discovery and calls. AGENTS.md forbids new runtime dependencies without an

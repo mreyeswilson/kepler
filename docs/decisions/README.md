@@ -30,3 +30,4 @@ New ADR format: Context, Decision, Consequences, Alternatives, Status.
 - [ADR-0024: Genesis local UI](0024-genesis-local-ui.md) (implemented in `kepler-ui`)
 - [ADR-0025: Claude Code hooks adapter (`kepler hook claude-code`)](0025-claude-code-hooks-adapter.md) (implemented in `kepler-cli`; tested with Claude Code 2.1.330 on Windows only)
 - [ADR-0026: Forge may ask the user's own Claude (Haiku) when its rules are in doubt](0026-forge-model-assisted-intent.md) (relaxes ADR-0009 "no model" for Forge only, opt-out; implemented in `kepler-forge`, `kepler-cli`)
+- [ADR-0030: MCP tools for Orbit and the other modules](0030-mcp-tools-for-orbit-and-modules.md) (amends ADR-0012; implemented in `kepler-mcp`, `kepler-cli`)

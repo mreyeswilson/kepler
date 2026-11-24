@@ -15,7 +15,7 @@
 .PARAMETER RequireVision
   Fail (instead of skip) when Node.js, npm or an installed Edge/Chrome is missing.
 .PARAMETER WithClaude
-  Also run one real, non-destructive `claude -p` task through Orbit (needs `claude` on PATH).
+  Also run one real, non-destructive `claude -p` task through Orbit and one real `claude -p` that calls a Kepler MCP tool (needs `claude` on PATH).
 #>
 param(
   [string]$Kepler = '',
@@ -567,6 +567,127 @@ Step 'forge model assist (fake claude: note, cache, rules-first, breaker, no rec
       if ($null -ne $saved[$p[1]]) { Set-Item -Path ("Env:\" + $p[0]) -Value $saved[$p[1]] } else { Remove-Item ("Env:\" + $p[0]) -ErrorAction SilentlyContinue }
     }
   }
+}
+
+# ------------------------------------------------------------------ MCP tools (Orbit in the flow)
+# One `mcp serve` session per call: initialize, then the given tools/call requests, then EOF.
+# Returns one object per call: IsError + Text (+ Json when the text is JSON).
+function Mcp-Session($calls, [int]$timeoutSec = 90) {
+  $lines = New-Object System.Collections.ArrayList
+  [void]$lines.Add('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"acc","version":"0"}}}')
+  [void]$lines.Add('{"jsonrpc":"2.0","method":"notifications/initialized"}')
+  $i = 10
+  foreach ($c in $calls) {
+    $i++
+    [void]$lines.Add((@{ jsonrpc = '2.0'; id = $i; method = 'tools/call'; params = @{ name = $c.name; arguments = $c.args } } | ConvertTo-Json -Depth 20 -Compress))
+  }
+  $r = K @('mcp', 'serve') (($lines -join "`n") + "`n") $timeoutSec
+  Assert ($r.Code -eq 0) "mcp serve exit $($r.Code): $($r.Err)"
+  $replies = @($r.Out -split "`n" | Where-Object { $_.Trim() -ne '' } | ForEach-Object { $_ | ConvertFrom-Json })
+  $res = @()
+  foreach ($rep in ($replies | Select-Object -Skip 1)) {
+    if ($rep.error) { $res += [pscustomobject]@{ IsError = $true; Text = "protocol error: $($rep.error.message)"; Json = $null; Protocol = $true }; continue }
+    $t = [string]$rep.result.content[0].text
+    $j = $null; try { $j = $t | ConvertFrom-Json } catch {}
+    $res += [pscustomobject]@{ IsError = [bool]$rep.result.isError; Text = $t; Json = $j; Protocol = $false }
+  }
+  return $res
+}
+
+Step 'mcp tools: forge enrich, guardian ask/deny, orbit_plan cycle, strict schema' {
+  $rs = Mcp-Session @(
+    @{ name = 'kepler_forge_analyze'; args = @{ text = 'arregla el bug del login' } },
+    @{ name = 'kepler_guardian_check'; args = @{ command = 'rm -rf /' } },
+    @{ name = 'kepler_guardian_check'; args = @{ path = '.env' } },
+    @{ name = 'kepler_orbit_plan'; args = @{ plan = @{ name = 'loop'; tasks = @(
+        @{ id = 'a'; command = @('git', '--version'); depends_on = @('b') },
+        @{ id = 'b'; command = @('git', '--version'); depends_on = @('a') }) } } },
+    @{ name = 'kepler_orbit_plan'; args = @{ plan = @{ name = 'x'; tasks = @(@{ id = 'a'; command = @('git', '--version'); surprise = 1 }) } } }
+  )
+  Assert ($rs.Count -eq 5) "expected 5 replies, got $($rs.Count)"
+  Assert ($rs[0].Json.mode -eq 'enrich') "forge: $($rs[0].Text)"
+  Assert ($rs[1].Json.verdict -eq 'ask') "guardian rm -rf: $($rs[1].Text)"
+  Assert ($rs[2].Json.verdict -eq 'deny') "guardian .env: $($rs[2].Text)"
+  Assert ($rs[3].IsError -and $rs[3].Text -match 'cycle') "cycle: $($rs[3].Text)"
+  Assert ($rs[4].Protocol -and $rs[4].Text -match 'surprise') "schema: $($rs[4].Text)"
+  'forge=enrich, rm -rf /=ask, .env=deny, cycle rejected, unknown field rejected by schema'
+}
+
+Step 'mcp orbit_run returns at once; run survives the MCP server; approve needs confirm' {
+  $repo = New-Repo 'mcp-orbit-repo'
+  $dir = Join-Path $work 'mcp-agent'; New-Item -ItemType Directory -Path $dir | Out-Null
+  # A stand-in sub-agent (no model): writes a file in its worktree and exits.
+  Set-Content -Path (Join-Path $dir 'fake-agent.cmd') -Value "@echo off`r`necho agent was here> agent-out.txt`r`necho done"
+  $env:KEPLER_AGENT_BIN = Join-Path $dir 'fake-agent.cmd'
+  try {
+    $plan = @{ name = 'acc-mcp'; max_parallel = 2; tasks = @(
+      @{ id = 'one'; agent = 'first part'; timeout_secs = 60 },
+      @{ id = 'two'; agent = 'second part'; timeout_secs = 60 },
+      @{ id = 'wipe'; command = @('git', 'clean', '-fd'); depends_on = @('one', 'two') }) }
+    $t0 = Get-Date
+    $rs = Mcp-Session @(@{ name = 'kepler_orbit_run'; args = @{ plan = $plan; repo = $repo } })
+    Assert (-not $rs[0].IsError) "orbit_run: $($rs[0].Text)"
+    $run = $rs[0].Json.run
+    Assert ($run -match '^orb-') "no run id: $($rs[0].Text)"
+    # The MCP server already exited (EOF); the executor must keep going on its own.
+    $deadline = (Get-Date).AddSeconds(90); $st = $null
+    do {
+      Start-Sleep -Milliseconds 500
+      $st = (KJson @('orbit', 'status', $run, '--json')).V
+    } while ($st.status -notin @('needs_approval', 'done', 'failed') -and (Get-Date) -lt $deadline)
+    Assert ($st.status -eq 'needs_approval') "status $($st.status)"
+    $wipe = $st.tasks | Where-Object id -eq 'wipe'
+    Assert ($wipe.status -eq 'awaiting_approval') "wipe is $($wipe.status)"
+    $one = Git $repo @('show', "kepler/orbit/$run/one:agent-out.txt")
+    Assert ($one -match 'agent was here') 'agent output not committed on its branch'
+    $rs = Mcp-Session @(
+      @{ name = 'kepler_orbit_approve'; args = @{ run = $run; task = 'wipe'; confirm = $false } },
+      @{ name = 'kepler_orbit_approve'; args = @{ run = $run; task = 'wipe'; confirm = $true } },
+      @{ name = 'kepler_orbit_resume'; args = @{ run = $run } })
+    Assert ($rs[0].IsError -and $rs[0].Text -match 'explicitly approved') "confirm=false: $($rs[0].Text)"
+    Assert ($rs[1].Json.decision -eq 'approved') "approve: $($rs[1].Text)"
+    Assert (-not $rs[2].IsError) "resume: $($rs[2].Text)"
+    $deadline = (Get-Date).AddSeconds(90)
+    do { Start-Sleep -Milliseconds 500; $st = (KJson @('orbit', 'status', $run, '--json')).V } while ($st.status -notin @('done', 'failed') -and (Get-Date) -lt $deadline)
+    Assert ($st.status -eq 'done') "final status $($st.status)"
+    $rs = Mcp-Session @(
+      @{ name = 'kepler_orbit_cleanup'; args = @{ run = $run; confirm = $false } },
+      @{ name = 'kepler_orbit_cleanup'; args = @{ run = $run; confirm = $true } })
+    Assert ($rs[0].IsError) 'cleanup without confirm must be refused'
+    Assert (-not $rs[1].IsError) "cleanup: $($rs[1].Text)"
+    Assert (-not (Git $repo @('branch', '--list', 'kepler/orbit/*')).Trim()) 'task branches left behind'
+    'run id returned in ' + [int]((Get-Date) - $t0).TotalSeconds + 's; executor outlived the MCP server; 2 agent tasks committed; approve needed confirm; cleanup removed branches'
+  } finally { Remove-Item Env:\KEPLER_AGENT_BIN -ErrorAction SilentlyContinue }
+}
+
+Step 'mcp via the official MCP SDK for Node (third-party client)' {
+  if (-not $nodeExe) { throw [SkipException]::new('skipped (not a pass): Node.js needed') }
+  $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue  # npm.ps1 cannot be started as a process
+  if (-not $npm) { throw [SkipException]::new('skipped (not a pass): npm needed to install @modelcontextprotocol/sdk') }
+  $sdk = Join-Path $work 'sdk'; New-Item -ItemType Directory -Path $sdk | Out-Null
+  Set-Content -Path (Join-Path $sdk 'package.json') -Value '{"name":"t","private":true,"type":"module"}' -Encoding ascii
+  $i = Invoke-Proc $npm.Source @('install', '@modelcontextprotocol/sdk@1.20.0', '--silent', '--no-audit', '--no-fund') $null 240 $sdk
+  if ($i.Code -ne 0) { throw [SkipException]::new("skipped (not a pass): npm install failed (offline?): $($i.Err.Trim())") }
+  Copy-Item (Join-Path $PSScriptRoot 'mcp-sdk-check.mjs') $sdk
+  $repo = New-Repo 'sdk-repo'
+  $r = Invoke-Proc $nodeExe.Source @('mcp-sdk-check.mjs', $Kepler, $repo) $null 180 $sdk
+  Assert ($r.Code -eq 0) "sdk check failed: $($r.Out) $($r.Err)"
+  $v = $r.Out | ConvertFrom-Json
+  $bad = @($v.steps | Where-Object { -not $_.pass })
+  Assert ($bad.Count -eq 0) "failed: $(($bad | ForEach-Object name) -join ', ')"
+  "$($v.steps.Count) SDK checks passed ($($v.readOnlyTools) read-only + $($v.writeTools) write tools)"
+}
+
+Step 'mcp via real claude -p (-WithClaude)' {
+  if (-not $WithClaude) { throw [SkipException]::new('skipped (not a pass): pass -WithClaude to run it') }
+  if (-not (Get-Command claude -ErrorAction SilentlyContinue)) { throw [SkipException]::new('skipped (not a pass): claude not on PATH') }
+  $cfg = Join-Path $work 'claude-mcp.json'
+  Write-Json $cfg @{ mcpServers = @{ kepler = @{ command = $Kepler; args = @('mcp', 'serve'); env = @{ KEPLER_HOME = $env:KEPLER_HOME; KEPLER_IPC_NAME = $env:KEPLER_IPC_NAME } } } }
+  $prompt = 'Call the kepler MCP tool kepler_guardian_check with command: rm -rf / and tell me its verdict word (allow, ask or deny). Be brief.'
+  $r = Invoke-Proc 'claude' @('-p', '--mcp-config', $cfg, '--strict-mcp-config', '--allowedTools', 'mcp__kepler__kepler_guardian_check', '--max-turns', '6') $prompt 240
+  Assert ($r.Code -eq 0) "claude exit $($r.Code): $($r.Err)"
+  Assert ($r.Out -match '\bask\b') "no verdict in: $($r.Out)"
+  'claude -p called kepler_guardian_check through --mcp-config and reported ask'
 }
 
 # ------------------------------------------------------------------ report

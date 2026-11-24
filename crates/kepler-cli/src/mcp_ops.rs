@@ -872,6 +872,17 @@ mod tests {
     }
 
     #[test]
+    fn the_documented_divide_and_delegate_example_is_a_valid_plan() {
+        let text =
+            include_str!("../../../integrations/claude-code/examples/divide-and-delegate.json");
+        let plan: Value = serde_json::from_str(text).unwrap();
+        let v: Value =
+            serde_json::from_str(&orbit_plan(&args(json!({"plan": plan}))).unwrap()).unwrap();
+        assert_eq!(v["waves"], json!([["api", "ui"], ["integrate"]]));
+        assert_eq!(v["agent_tasks"], 3);
+    }
+
+    #[test]
     fn unknown_operations_are_refused() {
         assert!(dispatch("kepler_nope", &Args::new())
             .unwrap_err()

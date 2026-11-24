@@ -2,7 +2,7 @@
 
 **Intelligent Execution Control for Coding Agents** — runtime local-first (Rust) que reduce desvíos, trabajo innecesario, afirmaciones sin evidencia y tiempos excesivos de los agentes de código.
 
-> **Estado honesto:** el núcleo Rust, los módulos Forge, Memory, Guardian, Focus, Sentinel, Vision (gestor + worker), Orbit, el servidor MCP mínimo y el adaptador Pi tienen código y tests automatizados que pasan. **Nada se ha verificado contra una sesión real de Pi, un cliente MCP de terceros, un navegador Chromium real ni Linux/macOS.** No hay release publicado todavía (los instaladores y el pipeline por tags no se han ejecutado contra uno real) ni paquete npm. Licencia: MIT. Detalle por componente más abajo.
+> **Estado honesto:** el núcleo Rust, los módulos Forge, Memory, Guardian, Focus, Sentinel, Vision (gestor + worker), Orbit, el servidor MCP mínimo y el adaptador Pi tienen código y tests automatizados que pasan. **Nada se ha verificado contra una sesión real de Pi, Claude Desktop (el servidor MCP sí se probó con el SDK oficial de MCP para Node y `claude -p`, ver ADR-0030), un navegador Chromium real ni Linux/macOS.** No hay release publicado todavía (los instaladores y el pipeline por tags no se han ejecutado contra uno real) ni paquete npm. Licencia: MIT. Detalle por componente más abajo.
 
 ## Qué hace hoy
 
@@ -99,7 +99,7 @@ kepler emit --in-process --json '{...evento v1...}'   # evalúa un evento sin da
 kepler daemon                                  # normalmente se inicia solo (lazy) con `emit`
 kepler inspect                                 # eventos recientes y métricas (solo lectura)
 kepler memory list|search|export|add|purge|disable|enable|stats
-kepler mcp serve                               # MCP por stdio: kepler_doctor, kepler_inspect, kepler_memory_search
+kepler mcp serve                               # MCP por stdio: 24 herramientas (Orbit, Forge, Guardian, Sentinel, memoria, Vision); ver integrations/claude-code
 
 kepler sentinel audit --repo . [--staged | --base main] [--store] [--fail-on high]
 kepler sentinel check --repo . --detect [--cmd "lint=cargo clippy"] [--timeout-secs 300] [--store]
@@ -146,11 +146,13 @@ Ejemplo de `plan.json` (comandos como *argv*, nunca cadenas de shell):
 
 Dos piezas independientes: el MCP solo da herramientas; los hooks son lo que observa y protege. Verificado solo con Claude Code 2.1.330 en Windows (ejecución real de `claude -p` en un directorio temporal); no en la UI interactiva; Linux/macOS sin probar ([ADR-0025](docs/decisions/0025-claude-code-hooks-adapter.md)).
 
-**1. MCP** (PowerShell; el registro con `claude mcp add` no se ejecutó en esta verificación; herramientas `kepler_doctor`, `kepler_inspect`, `kepler_memory_search`):
+**1. MCP** (PowerShell; el registro con `claude mcp add` no se ejecutó en esta verificación; 24 herramientas, ver 1b):
 
 ```powershell
 claude mcp add kepler -- "C:\ruta\a\kepler.exe" mcp serve
 ```
+
+**1b. Orbit dentro del flujo (delegar a subagentes).** Con el MCP registrado, Claude puede llamar `kepler_orbit_suggest_plan` / `kepler_orbit_run` / `kepler_orbit_status`... (24 herramientas con `annotations` MCP; las que ejecutan o escriben piden confirmación al cliente; `KEPLER_MCP_READONLY=1` deja solo las de lectura). `kepler_orbit_run` devuelve un `run_id` sin bloquear; cada tarea `agent` es un `claude -p` real en su propio worktree/rama. En `integrations/claude-code/` hay una skill y un comando `/kepler-orbit` (copia manual a `.claude/skills` o `.claude/commands`), la configuración de Claude Desktop (`%APPDATA%\Claude\claude_desktop_config.json`) y un plan de ejemplo. **Honestidad:** esto es orquestación real (procesos supervisados, ramas, aprobaciones) pero solo ocurre cuando el modelo llama a las herramientas y el usuario lo aprueba; MCP no intercepta nada ni lanza agentes por sí solo; los resultados quedan en ramas que tú fusionas. Verificado en Windows con el SDK oficial de MCP para Node, `claude -p --mcp-config` y una ejecución real con dos tareas `agent` + integración; **no** en la GUI de Claude Desktop ([ADR-0030](docs/decisions/0030-mcp-tools-for-orbit-and-modules.md)).
 
 **2. Hooks** (sin Node). Genera el bloque con la ruta absoluta de tu `kepler`:
 

@@ -1,0 +1,28 @@
+{
+  "name": "Add login (divide and delegate)",
+  "max_parallel": 2,
+  "tasks": [
+    {
+      "id": "api",
+      "description": "Backend endpoint",
+      "agent": "In this repository add a POST /login endpoint in the backend code only. Do not touch the UI. Add a unit test and make it pass.",
+      "agent_args": ["--permission-mode", "acceptEdits"],
+      "timeout_secs": 900
+    },
+    {
+      "id": "ui",
+      "description": "Login form",
+      "agent": "In this repository add a login form component in the UI code only. Do not touch the backend. Keep the change small.",
+      "agent_args": ["--permission-mode", "acceptEdits"],
+      "timeout_secs": 900
+    },
+    {
+      "id": "integrate",
+      "description": "Merge and verify",
+      "agent": "The branches of the api and ui tasks are merged in this worktree. Resolve any inconsistency between the endpoint and the form, then run the project's tests and report the result.",
+      "agent_args": ["--permission-mode", "acceptEdits"],
+      "depends_on": ["api", "ui"],
+      "timeout_secs": 900
+    }
+  ]
+}
