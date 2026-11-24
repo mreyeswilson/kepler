@@ -194,6 +194,17 @@ CREATE TABLE task_dependencies (
 CREATE INDEX tasks_run ON tasks (run_id, id);
 "#,
     ),
+    (
+        5,
+        "event_attribution",
+        r#"
+-- Which module acted on an event (comma list of module names), a bounded `key=value;` note
+-- (only codes and counters, never user text) and the in-core evaluation time.
+ALTER TABLE events ADD COLUMN actors TEXT;
+ALTER TABLE events ADD COLUMN detail TEXT;
+ALTER TABLE events ADD COLUMN proc_ms INTEGER;
+"#,
+    ),
 ];
 
 pub const LATEST_VERSION: i64 = MIGRATIONS[MIGRATIONS.len() - 1].0;

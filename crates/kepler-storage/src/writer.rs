@@ -290,8 +290,8 @@ fn run(mut conn: Connection, rx: Receiver<Cmd>, cfg: WriterConfig, failed: Arc<A
 fn insert_event(tx: &Transaction<'_>, r: &EventRecord) -> rusqlite::Result<u64> {
     let inserted = tx.execute(
         "INSERT OR IGNORE INTO events
-           (event_id, kind, ts, harness, project_id, session_id, correlation_id, payload_bytes, decision, reason)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+           (event_id, kind, ts, harness, project_id, session_id, correlation_id, payload_bytes, decision, reason, actors, detail, proc_ms)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         rusqlite::params![
             r.event_id,
             r.kind,
@@ -302,7 +302,10 @@ fn insert_event(tx: &Transaction<'_>, r: &EventRecord) -> rusqlite::Result<u64> 
             r.correlation_id,
             r.payload_bytes,
             r.decision,
-            r.reason
+            r.reason,
+            r.actors,
+            r.detail,
+            r.proc_ms
         ],
     )?;
     if inserted == 1 {

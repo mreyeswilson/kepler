@@ -14,6 +14,7 @@ mod migrations;
 mod orbit;
 mod reader;
 mod records;
+mod rows;
 pub mod redact {
     //! Redaction lives in `kepler-policy` (the Guardian also uses it); re-exported here.
     pub use kepler_policy::redact::*;
@@ -39,6 +40,7 @@ pub use orbit::{
 };
 pub use reader::{inspect, DbStatus, MemoryHit, Reader, StoredEvent};
 pub use records::{EventRecord, MemoryRecord, MAX_MEMORY_BYTES};
+pub use rows::Cell;
 pub use writer::{Writer, WriterConfig};
 
 pub use rusqlite::Connection;

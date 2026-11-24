@@ -72,14 +72,52 @@ impl Core {
         }
     }
 
+    /// Record which deterministic Forge mode and rule class an input got (codes only), so the UI
+    /// can show Forge activity. Runs the same cheap analysis Forge already ran; only when Forge is
+    /// registered and the input is not trivial.
+    fn annotate_forge(&self, event: &Envelope, verdict: &Verdict, rec: &mut EventRecord) {
+        match &event.payload {
+            Payload::ToolCallRequested(t) => rec.add_detail("tool", &t.tool),
+            Payload::ToolCallCompleted(t) => rec.add_detail("tool", &t.tool),
+            _ => {}
+        }
+        let Payload::InputReceived(input) = &event.payload else {
+            return;
+        };
+        let trivial = matches!(&verdict.decision, Decision::Passthrough { reason } if reason.starts_with("trivial_input"));
+        if trivial || !self.engine.pipeline().contains(&"forge") {
+            return;
+        }
+        let a = kepler_forge::analyze(&input.text);
+        rec.add_detail("forge", a.mode.as_str());
+        rec.add_detail("rule", a.reason);
+        let class = match a.class() {
+            Some(kepler_forge::RuleClass::Task) => "task",
+            Some(kepler_forge::RuleClass::Question) => "question",
+            Some(kepler_forge::RuleClass::Chat) => "chat",
+            None => "unknown",
+        };
+        rec.add_detail("class", class);
+        let conf = match a.confidence {
+            kepler_forge::Confidence::Decisive => "decisive",
+            kepler_forge::Confidence::Doubtful => "doubtful",
+        };
+        rec.add_detail("conf", conf);
+    }
+
     /// Synchronous core of `handle_event`; separate for direct unit testing.
     pub fn process(&self, conn: ConnectionId, event: &Envelope) -> Result<Verdict, Reject> {
         self.sessions.bind(conn, &event.session_id)?;
+        let started = std::time::Instant::now();
         let verdict = self.engine.evaluate(event);
+        let elapsed_ms = u32::try_from(started.elapsed().as_millis()).unwrap_or(u32::MAX);
         self.handled.fetch_add(1, Ordering::Relaxed);
         if let Some(w) = &self.storage {
+            let mut rec = EventRecord::from_event(event, &verdict);
+            rec.proc_ms = Some(elapsed_ms);
+            self.annotate_forge(event, &verdict, &mut rec);
             // Never blocks; a full queue just drops the metadata row.
-            w.record_event(EventRecord::from_event(event, &verdict));
+            w.record_event(rec);
         }
         self.record_metrics(event, &verdict);
         if event.kind == EventKind::SessionClosed {

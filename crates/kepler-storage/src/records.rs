@@ -19,9 +19,34 @@ pub struct EventRecord {
     pub payload_bytes: u32,
     pub decision: &'static str,
     pub reason: Option<String>,
+    /// Modules that produced output for this event (comma list). Names only.
+    pub actors: Option<String>,
+    /// Bounded `key=value;` codes (Forge mode, advisory codes, degraded modules). No user text.
+    pub detail: Option<String>,
+    /// Time the core spent evaluating the event.
+    pub proc_ms: Option<u32>,
 }
 
+const MAX_DETAIL_BYTES: usize = 200;
+
 impl EventRecord {
+    /// Append a `key=value` code to `detail` (value restricted to `[A-Za-z0-9_.:,-]`, bounded).
+    pub fn add_detail(&mut self, key: &str, value: &str) {
+        let clean: String = value
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | ':' | ',' | '-'))
+            .take(64)
+            .collect();
+        let d = self.detail.get_or_insert_with(String::new);
+        let add = format!("{key}={clean}");
+        if d.len() + add.len() < MAX_DETAIL_BYTES {
+            if !d.is_empty() {
+                d.push(';');
+            }
+            d.push_str(&add);
+        }
+    }
+
     pub fn from_event(e: &Envelope, v: &Verdict) -> Self {
         let (decision, reason) = match &v.decision {
             Decision::Passthrough { reason } => ("passthrough", Some(reason.as_str())),
@@ -30,7 +55,33 @@ impl EventRecord {
             Decision::Deny { reason } => ("deny", Some(reason.as_str())),
             Decision::Redact { reason, .. } => ("redact", Some(reason.as_str())),
         };
-        Self {
+        let mut actors: Vec<String> = Vec::new();
+        let mut push = |n: &str| {
+            let n: String = n
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .take(24)
+                .collect();
+            if !n.is_empty() && !actors.contains(&n) {
+                actors.push(n);
+            }
+        };
+        if let Decision::Enrich { derived } = &v.decision {
+            for d in derived {
+                push(&d.source);
+            }
+        }
+        for a in &v.advisories {
+            push(&a.source);
+        }
+        if matches!(
+            e.kind.as_str(),
+            "tool.call.requested" | "tool.call.completed"
+        ) {
+            // The Guardian preflight / result scan runs on every tool event.
+            push("guardian");
+        }
+        let mut rec = Self {
             event_id: e.id.clone(),
             kind: e.kind.as_str().to_string(),
             ts: e.timestamp.clone(),
@@ -41,7 +92,25 @@ impl EventRecord {
             payload_bytes: u32::try_from(e.payload.text_bytes()).unwrap_or(u32::MAX),
             decision,
             reason: reason.map(|r| redact(r).chars().take(MAX_REASON_BYTES).collect()),
+            actors: None,
+            detail: None,
+            proc_ms: None,
+        };
+        if !actors.is_empty() {
+            rec.actors = Some(actors.join(","));
         }
+        if !v.degraded.is_empty() {
+            let names: Vec<&str> = v
+                .degraded
+                .iter()
+                .filter_map(|d| d.split(':').next())
+                .collect();
+            rec.add_detail("degraded", &names.join(","));
+        }
+        for a in &v.advisories {
+            rec.add_detail("adv", &a.code);
+        }
+        rec
     }
 }
 
