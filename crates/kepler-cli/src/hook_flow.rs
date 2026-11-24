@@ -845,7 +845,13 @@ pub fn post_tool_notes(
     }
     let bytes = crate::hook_claude::response_len(input);
     let est = u32::try_from(bytes / 4).unwrap_or(u32::MAX);
-    if est >= cfg.output_warn_tokens {
+    // A Read the model (or Guardian) already bounded with a `limit` is not noted again.
+    let bounded_read = tool == "Read"
+        && input
+            .get("tool_input")
+            .and_then(|t| t.get("limit"))
+            .is_some_and(|v| !v.is_null());
+    if est >= cfg.output_warn_tokens && !bounded_read {
         notes.push(big_output_note(tool, est));
         metrics.push(Metric {
             kind: "guardian_big_output",
