@@ -327,7 +327,16 @@ fn mcp_serve_speaks_json_rpc_over_stdio_with_a_real_client_flow() {
         .collect();
     assert_eq!(replies.len(), 6, "the notification must not be answered");
     assert_eq!(replies[0]["result"]["protocolVersion"], "2025-06-18");
-    assert_eq!(replies[1]["result"]["tools"].as_array().unwrap().len(), 3);
+    // Doctor, inspect and memory search are still there among the Orbit/Forge/... tools.
+    let names: Vec<&str> = replies[1]["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    for n in ["kepler_doctor", "kepler_inspect", "kepler_memory_search"] {
+        assert!(names.contains(&n), "{n} missing from {names:?}");
+    }
     let text = |i: usize| {
         replies[i]["result"]["content"][0]["text"]
             .as_str()

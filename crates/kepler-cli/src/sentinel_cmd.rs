@@ -93,14 +93,14 @@ pub(crate) fn project_for(repo: &std::path::Path) -> String {
     format!("local-{h:016x}")
 }
 
-fn hit_json(h: &Hit) -> Value {
+pub(crate) fn hit_json(h: &Hit) -> Value {
     json!({
         "rule": h.rule_id, "severity": h.severity.as_str(), "confidence": h.confidence.as_str(),
         "path": h.path, "line": h.line, "message": h.message, "evidence": h.evidence,
     })
 }
 
-fn row_json(r: &FindingRow) -> Value {
+pub(crate) fn row_json(r: &FindingRow) -> Value {
     json!({
         "id": r.id, "at": r.ts, "project": r.project_id, "source": r.source, "rule": r.rule_id,
         "severity": r.severity, "confidence": r.confidence, "path": r.path, "line": r.line,

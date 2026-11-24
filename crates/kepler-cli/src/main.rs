@@ -7,6 +7,7 @@ mod hook_claude;
 mod hook_cmd;
 mod inspect;
 mod mcp_cmd;
+mod mcp_ops;
 mod memory_cmd;
 mod orbit_cmd;
 mod sentinel_cmd;

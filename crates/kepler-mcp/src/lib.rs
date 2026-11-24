@@ -1,12 +1,21 @@
-//! Minimal MCP server over stdio (KPL-014): JSON-RPC 2.0, one message per line, tools only.
+//! Minimal MCP server over stdio (KPL-014, extended by ADR-0030): JSON-RPC 2.0, one message per
+//! line, tools only.
 //!
 //! Scope, stated plainly: MCP gives an agent *callable tools*. It does **not** intercept the
-//! agent's prompts, tool calls or results; that needs a native hook (see ADR-0002). The tools
-//! here are read-only (diagnostics, inspection, memory search) and their output is bounded.
+//! agent's prompts, tool calls or results; that needs a native hook (see ADR-0002). Tools are
+//! declared in `tools/` (one file per family, one registry table), validated against their own
+//! JSON Schema, annotated for client confirmation UIs, redacted and bounded.
 //!
 //! Implemented methods: `initialize`, `notifications/initialized`, `ping`, `tools/list`,
 //! `tools/call`. Everything else is answered with JSON-RPC "method not found". No batching
 //! (removed from the 2025-06-18 revision), no resources, prompts, sampling or logging.
+
+mod schema;
+mod tool;
+mod tools;
+
+pub use tool::{Hints, Tool};
+pub use tools::{build_suggested_plan, plan_schema, registry};
 
 use serde_json::{json, Map, Value};
 use std::io::{BufRead, Write};
@@ -16,7 +25,11 @@ pub const SUPPORTED_PROTOCOLS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-
 /// Longest accepted input line (bytes); longer lines are rejected without being parsed.
 pub const MAX_LINE_BYTES: usize = 1024 * 1024;
 /// Longest tool output text (bytes); longer output is cut with a marker.
-pub const MAX_TOOL_OUTPUT_BYTES: usize = 16 * 1024;
+pub const MAX_TOOL_OUTPUT_BYTES: usize = 32 * 1024;
+/// Longest error message returned to the model (bytes).
+const MAX_ERROR_BYTES: usize = 800;
+/// Marker appended to a clipped output.
+pub const TRUNCATION_MARK: &str = "\n[output truncated by kepler]";
 
 const PARSE_ERROR: i64 = -32700;
 const INVALID_REQUEST: i64 = -32600;
@@ -31,6 +44,12 @@ pub trait Backend {
     fn inspect(&self, limit: u32) -> Result<Value, String>;
     /// Scoped, ranked, budgeted memory retrieval (read-only).
     fn memory_search(&self, q: &MemorySearch) -> Result<String, String>;
+    /// Every other tool: `op` is the tool name, `args` already passed its schema. Returns the
+    /// text for the model or a short error message. Backends that lack an operation keep the
+    /// default.
+    fn op(&self, op: &str, _args: &Map<String, Value>) -> Result<String, String> {
+        Err(format!("`{op}` is not available in this build"))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +64,8 @@ pub struct MemorySearch {
 pub struct McpServer<B: Backend> {
     backend: B,
     server_version: String,
+    tools: Vec<Tool>,
+    read_only: bool,
 }
 
 fn error(id: Value, code: i64, message: &str) -> String {
@@ -56,47 +77,24 @@ fn ok(id: Value, result: Value) -> String {
 }
 
 fn text_result(text: String, is_error: bool) -> Value {
-    json!({"content": [{"type": "text", "text": clip(text)}], "isError": is_error})
+    json!({"content": [{"type": "text", "text": clip(text, MAX_TOOL_OUTPUT_BYTES)}], "isError": is_error})
 }
 
-fn clip(mut s: String) -> String {
-    if s.len() > MAX_TOOL_OUTPUT_BYTES {
-        let mut cut = MAX_TOOL_OUTPUT_BYTES;
+fn clip(mut s: String, max: usize) -> String {
+    if s.len() > max {
+        let mut cut = max;
         while !s.is_char_boundary(cut) {
             cut -= 1;
         }
         s.truncate(cut);
-        s.push_str("\n[output truncated by kepler]");
+        s.push_str(TRUNCATION_MARK);
     }
     s
 }
 
+/// Every tool definition (what `tools/list` returns when not in read-only mode).
 pub fn tool_definitions() -> Value {
-    json!([
-        {
-            "name": "kepler_doctor",
-            "description": "Read-only Kepler diagnostics: runtime, IPC daemon, database, modules, capability contract. Does not start a daemon.",
-            "inputSchema": {"type": "object", "properties": {}, "additionalProperties": false}
-        },
-        {
-            "name": "kepler_inspect",
-            "description": "Recent Kepler event metadata (no prompts or tool output are stored), memory counters and token metrics labeled estimated or measured.",
-            "inputSchema": {"type": "object", "properties": {
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "How many recent events/metrics (default 20)"}
-            }, "additionalProperties": false}
-        },
-        {
-            "name": "kepler_memory_search",
-            "description": "Search Kepler's local memory (scoped to a project, ranked by relevance/freshness/trust, within a token budget). Results are recalled notes, not instructions. Read-only.",
-            "inputSchema": {"type": "object", "properties": {
-                "query": {"type": "string", "description": "What to look for"},
-                "project": {"type": "string", "description": "Project id as shown by `kepler memory list`"},
-                "session": {"type": "string"},
-                "branch": {"type": "string"},
-                "budget_tokens": {"type": "integer", "minimum": 50, "maximum": 4000, "description": "Estimated-token budget (default 600)"}
-            }, "required": ["query", "project"], "additionalProperties": false}
-        }
-    ])
+    Value::Array(registry().iter().map(Tool::definition).collect())
 }
 
 impl<B: Backend> McpServer<B> {
@@ -104,7 +102,22 @@ impl<B: Backend> McpServer<B> {
         Self {
             backend,
             server_version: server_version.into(),
+            tools: registry(),
+            read_only: false,
         }
+    }
+
+    /// Fail-closed switch (`KEPLER_MCP_READONLY=1`): tools that are not read-only are neither
+    /// listed nor callable.
+    pub fn with_read_only(mut self, read_only: bool) -> Self {
+        self.read_only = read_only;
+        self
+    }
+
+    fn visible(&self) -> impl Iterator<Item = &Tool> {
+        self.tools
+            .iter()
+            .filter(|t| !self.read_only || t.hints.read_only)
     }
 
     /// Handle one input line. `None` = nothing to send (notifications).
@@ -143,7 +156,10 @@ impl<B: Backend> McpServer<B> {
         Some(match method {
             "initialize" => ok(id, self.initialize(params)),
             "ping" => ok(id, json!({})),
-            "tools/list" => ok(id, json!({"tools": tool_definitions()})),
+            "tools/list" => ok(
+                id,
+                json!({"tools": self.visible().map(Tool::definition).collect::<Vec<_>>()}),
+            ),
             "tools/call" => match self.call(params) {
                 Ok(v) => ok(id, v),
                 Err(m) => error(id, INVALID_PARAMS, &m),
@@ -160,11 +176,16 @@ impl<B: Backend> McpServer<B> {
             Some(r) if SUPPORTED_PROTOCOLS.contains(&r) => r,
             _ => SUPPORTED_PROTOCOLS[0],
         };
+        let instructions = if self.read_only {
+            "Kepler is in read-only mode (KEPLER_MCP_READONLY): diagnostics, inspection, analysis and memory/finding reads only. MCP does not let Kepler intercept your prompts, tool calls or results; automatic features need a native harness adapter."
+        } else {
+            "Kepler tools. Read-only: diagnostics, inspection, Forge/Guardian/Sentinel analysis, memory search, Orbit planning and status. With effects (ask the user first): kepler_orbit_run/resume/cancel/cleanup/approve (Orbit runs sub-agents and commands in separate git worktrees), kepler_sentinel_check, kepler_vision_check, kepler_memory_add. For a large task that splits into independent parts, use kepler_orbit_suggest_plan, show the plan to the user, and only start it after they agree; do not start agents just because they exist. MCP does not let Kepler intercept your prompts, tool calls or results; automatic features need a native harness adapter."
+        };
         json!({
             "protocolVersion": version,
             "capabilities": {"tools": {"listChanged": false}},
             "serverInfo": {"name": "kepler", "version": self.server_version},
-            "instructions": "Kepler exposes read-only tools: diagnostics, inspection and memory search. MCP does not let Kepler intercept your prompts, tool calls or results; automatic features need a native harness adapter."
+            "instructions": instructions,
         })
     }
 
@@ -182,33 +203,39 @@ impl<B: Backend> McpServer<B> {
             Some(Value::Object(m)) => m,
             Some(_) => return Err("arguments must be an object".into()),
         };
+        let tool = self
+            .tools
+            .iter()
+            .find(|t| t.name == name)
+            .ok_or_else(|| format!("unknown tool `{name}`"))?;
+        if self.read_only && !tool.hints.read_only {
+            return Ok(text_result(
+                format!("kepler error: `{name}` is disabled (KEPLER_MCP_READONLY is set)"),
+                true,
+            ));
+        }
         // Tool failures are reported as results with isError (so the model can see them);
         // only unknown tools and malformed arguments are protocol errors.
-        match name {
-            "kepler_doctor" => Ok(self.finish(self.backend.doctor().map(|v| pretty(&v)))),
-            "kepler_inspect" => {
-                let limit = opt_u32(args, "limit", 20)?.clamp(1, 100);
-                Ok(self.finish(self.backend.inspect(limit).map(|v| pretty(&v))))
-            }
-            "kepler_memory_search" => {
-                let q = MemorySearch {
-                    query: req_str(args, "query")?,
-                    project: req_str(args, "project")?,
-                    session: opt_str(args, "session")?,
-                    branch: opt_str(args, "branch")?,
-                    budget_tokens: opt_u32(args, "budget_tokens", 600)?.clamp(50, 4000),
+        schema::validate(&(tool.schema)(), &Value::Object(args.clone()), "arguments")?;
+        let out = tool.call(&self.backend, args);
+        Ok(match out {
+            Ok(text) => {
+                let text = if tool.hints.redact {
+                    // Bound the work the redactor does, then bound what leaves.
+                    kepler_policy::redact::redact(&clip(text, MAX_TOOL_OUTPUT_BYTES * 2))
+                } else {
+                    text
                 };
-                Ok(self.finish(self.backend.memory_search(&q)))
+                text_result(text, false)
             }
-            other => Err(format!("unknown tool `{other}`")),
-        }
-    }
-
-    fn finish(&self, r: Result<String, String>) -> Value {
-        match r {
-            Ok(t) => text_result(t, false),
-            Err(e) => text_result(format!("kepler error: {e}"), true),
-        }
+            Err(e) => text_result(
+                clip(
+                    format!("kepler error: {}", kepler_policy::redact::redact(&e)),
+                    MAX_ERROR_BYTES,
+                ),
+                true,
+            ),
+        })
     }
 
     /// Serve until EOF. Writes one response per line and flushes after each.
@@ -276,37 +303,6 @@ fn read_bounded_line<R: BufRead>(
     Ok(total)
 }
 
-fn pretty(v: &Value) -> String {
-    serde_json::to_string_pretty(v).unwrap_or_else(|_| v.to_string())
-}
-
-fn req_str(m: &Map<String, Value>, k: &str) -> Result<String, String> {
-    match m.get(k) {
-        Some(Value::String(s)) if !s.trim().is_empty() && s.len() <= 4096 => Ok(s.clone()),
-        _ => Err(format!(
-            "`{k}` is required (non-empty string, <= 4096 bytes)"
-        )),
-    }
-}
-
-fn opt_str(m: &Map<String, Value>, k: &str) -> Result<Option<String>, String> {
-    match m.get(k) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(s)) if s.len() <= 256 => Ok(Some(s.clone())),
-        _ => Err(format!("`{k}` must be a string of at most 256 bytes")),
-    }
-}
-
-fn opt_u32(m: &Map<String, Value>, k: &str, default: u32) -> Result<u32, String> {
-    match m.get(k) {
-        None | Some(Value::Null) => Ok(default),
-        Some(v) => v
-            .as_u64()
-            .and_then(|n| u32::try_from(n).ok())
-            .ok_or_else(|| format!("`{k}` must be a non-negative integer")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,6 +323,22 @@ mod tests {
                 return Ok("x".repeat(100_000));
             }
             Ok(format!("{}|{}|{}", q.project, q.query, q.budget_tokens))
+        }
+        fn op(&self, op: &str, args: &Map<String, Value>) -> Result<String, String> {
+            match (op, args.get("text").and_then(Value::as_str)) {
+                ("kepler_forge_analyze", Some("leak")) => {
+                    Ok(format!("found token ghp_{}", "a1B2".repeat(9)))
+                }
+                ("kepler_forge_analyze", Some("huge")) => Ok("y".repeat(200_000)),
+                ("kepler_orbit_plan", _) => {
+                    if args["plan"]["name"] == "bad" {
+                        Err("dependency cycle: a -> b -> a".into())
+                    } else {
+                        Ok(json!({"ok": true}).to_string())
+                    }
+                }
+                _ => Ok(json!({"op": op, "args": args}).to_string()),
+            }
         }
     }
 
@@ -378,25 +390,301 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_has_the_three_read_only_tools_with_schemas() {
+    fn tools_list_declares_every_tool_with_strict_schema_and_annotations() {
         let r = call(
             &server(),
             r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
         );
         let tools = r["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(
-            names,
-            vec!["kepler_doctor", "kepler_inspect", "kepler_memory_search"]
-        );
+        let expected = [
+            "kepler_doctor",
+            "kepler_inspect",
+            "kepler_memory_search",
+            "kepler_orbit_suggest_plan",
+            "kepler_orbit_plan",
+            "kepler_orbit_run",
+            "kepler_orbit_list",
+            "kepler_orbit_status",
+            "kepler_orbit_logs",
+            "kepler_orbit_approve",
+            "kepler_orbit_deny",
+            "kepler_orbit_resume",
+            "kepler_orbit_cancel",
+            "kepler_orbit_cleanup",
+            "kepler_forge_analyze",
+            "kepler_guardian_check",
+            "kepler_sentinel_audit",
+            "kepler_sentinel_list",
+            "kepler_sentinel_check",
+            "kepler_memory_list",
+            "kepler_memory_export",
+            "kepler_memory_add",
+            "kepler_vision_status",
+            "kepler_vision_check",
+        ];
+        assert_eq!(names, expected);
+        let mut seen = std::collections::HashSet::new();
         for t in tools {
-            assert_eq!(t["inputSchema"]["type"], "object");
-            assert!(t["description"].as_str().unwrap().len() > 20);
+            assert!(seen.insert(t["name"].as_str().unwrap()), "duplicate name");
+            let schema = &t["inputSchema"];
+            assert_eq!(schema["type"], "object", "{t}");
+            assert_eq!(schema["additionalProperties"], false, "{t}");
+            assert!(t["description"].as_str().unwrap().len() > 40, "{t}");
+            let a = &t["annotations"];
+            for k in [
+                "readOnlyHint",
+                "destructiveHint",
+                "idempotentHint",
+                "openWorldHint",
+            ] {
+                assert!(a[k].is_boolean(), "{} lacks {k}", t["name"]);
+            }
+            // Every required property is declared, every declared property is typed.
+            for r in schema["required"].as_array().unwrap() {
+                assert!(schema["properties"][r.as_str().unwrap()].is_object(), "{t}");
+            }
+            for (k, p) in schema["properties"].as_object().unwrap() {
+                assert!(
+                    p["type"].is_string(),
+                    "{} property {k} has no type",
+                    t["name"]
+                );
+            }
+            // A read-only tool is never also marked destructive.
+            if a["readOnlyHint"] == true {
+                assert_eq!(a["destructiveHint"], false, "{}", t["name"]);
+            }
         }
         assert_eq!(
             tools[2]["inputSchema"]["required"],
             json!(["query", "project"])
         );
+    }
+
+    #[test]
+    fn risk_levels_match_the_annotations() {
+        let r = call(
+            &server(),
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+        );
+        let by = |n: &str| {
+            r["result"]["tools"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["name"] == n)
+                .unwrap()["annotations"]
+                .clone()
+        };
+        for n in [
+            "kepler_doctor",
+            "kepler_inspect",
+            "kepler_memory_search",
+            "kepler_memory_list",
+            "kepler_memory_export",
+            "kepler_forge_analyze",
+            "kepler_guardian_check",
+            "kepler_sentinel_audit",
+            "kepler_sentinel_list",
+            "kepler_vision_status",
+            "kepler_orbit_suggest_plan",
+            "kepler_orbit_plan",
+            "kepler_orbit_list",
+            "kepler_orbit_status",
+            "kepler_orbit_logs",
+        ] {
+            assert_eq!(by(n)["readOnlyHint"], true, "{n}");
+        }
+        for n in [
+            "kepler_orbit_run",
+            "kepler_orbit_approve",
+            "kepler_orbit_resume",
+            "kepler_orbit_cancel",
+            "kepler_orbit_cleanup",
+            "kepler_sentinel_check",
+            "kepler_memory_add",
+            "kepler_vision_check",
+        ] {
+            assert_eq!(by(n)["readOnlyHint"], false, "{n}");
+        }
+        for n in [
+            "kepler_orbit_run",
+            "kepler_orbit_approve",
+            "kepler_orbit_cleanup",
+            "kepler_orbit_cancel",
+            "kepler_sentinel_check",
+        ] {
+            assert_eq!(by(n)["destructiveHint"], true, "{n}");
+        }
+        assert_eq!(by("kepler_orbit_deny")["destructiveHint"], false);
+        assert_eq!(by("kepler_orbit_approve")["idempotentHint"], true);
+    }
+
+    #[test]
+    fn read_only_mode_hides_and_refuses_everything_with_effects() {
+        let s = server().with_read_only(true);
+        let r = call(&s, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#);
+        let tools = r["result"]["tools"].as_array().unwrap();
+        assert!(!tools.is_empty());
+        assert!(tools
+            .iter()
+            .all(|t| t["annotations"]["readOnlyHint"] == true));
+        let r = call(
+            &s,
+            r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"kepler_orbit_run","arguments":{"plan":{"name":"p","tasks":[{"id":"a","command":["git","status"]}]},"repo":"."}}}"#,
+        );
+        assert_eq!(r["result"]["isError"], true);
+        assert!(r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("KEPLER_MCP_READONLY"));
+        let r = call(
+            &s,
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+        );
+        assert!(r["result"]["instructions"]
+            .as_str()
+            .unwrap()
+            .contains("read-only"));
+    }
+
+    fn tool_call(s: &McpServer<Mock>, name: &str, args: Value) -> Value {
+        let line = json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":args}});
+        call(s, &line.to_string())
+    }
+
+    fn text(r: &Value) -> String {
+        r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    #[test]
+    fn every_tool_rejects_unknown_fields_and_wrong_types_as_invalid_params() {
+        let s = server();
+        let list = call(&s, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#);
+        for t in list["result"]["tools"].as_array().unwrap() {
+            let r = tool_call(&s, t["name"].as_str().unwrap(), json!({"nope": 1}));
+            assert_eq!(r["error"]["code"], INVALID_PARAMS, "{}", t["name"]);
+            let m = r["error"]["message"].as_str().unwrap();
+            assert!(m.contains("nope") || m.contains("is required"), "{m}");
+        }
+    }
+
+    #[test]
+    fn approve_and_cleanup_need_explicit_confirm() {
+        let s = server();
+        let r = tool_call(
+            &s,
+            "kepler_orbit_approve",
+            json!({"run":"orb-1","task":"t"}),
+        );
+        assert_eq!(
+            r["error"]["code"], INVALID_PARAMS,
+            "confirm is required by the schema"
+        );
+        let r = tool_call(
+            &s,
+            "kepler_orbit_approve",
+            json!({"run":"orb-1","task":"t","confirm":false}),
+        );
+        assert_eq!(r["result"]["isError"], true);
+        assert!(text(&r).contains("explicitly approved"));
+        let r = tool_call(
+            &s,
+            "kepler_orbit_approve",
+            json!({"run":"orb-1","task":"t","confirm":true}),
+        );
+        assert_eq!(r["result"]["isError"], false);
+        assert!(text(&r).contains("kepler_orbit_approve"));
+        let r = tool_call(
+            &s,
+            "kepler_orbit_cleanup",
+            json!({"run":"orb-1","confirm":false}),
+        );
+        assert_eq!(r["result"]["isError"], true);
+        assert!(text(&r).contains("nothing removed"));
+        let r = tool_call(
+            &s,
+            "kepler_orbit_cleanup",
+            json!({"run":"orb-1","confirm":true}),
+        );
+        assert_eq!(r["result"]["isError"], false);
+    }
+
+    #[test]
+    fn guardian_check_needs_exactly_one_of_command_or_path() {
+        let s = server();
+        for args in [json!({}), json!({"command":"ls","path":"a"})] {
+            let r = tool_call(&s, "kepler_guardian_check", args);
+            assert_eq!(r["result"]["isError"], true);
+            assert!(text(&r).contains("exactly one"));
+        }
+        let r = tool_call(&s, "kepler_guardian_check", json!({"command":"ls"}));
+        assert_eq!(r["result"]["isError"], false);
+        let r = tool_call(
+            &s,
+            "kepler_sentinel_audit",
+            json!({"repo":".","staged":true,"base":"main"}),
+        );
+        assert_eq!(r["result"]["isError"], true);
+    }
+
+    #[test]
+    fn suggest_plan_builds_validates_and_reports_invalid_plans() {
+        let s = server();
+        let r = tool_call(
+            &s,
+            "kepler_orbit_suggest_plan",
+            json!({"objective":"Add login","subtasks":[
+                {"id":"api","prompt":"do api"},{"id":"ui","prompt":"do ui"}],
+                "integration_prompt":"merge them"}),
+        );
+        assert_eq!(r["result"]["isError"], false);
+        let v: Value = serde_json::from_str(&text(&r)).unwrap();
+        assert_eq!(v["plan"]["tasks"].as_array().unwrap().len(), 3);
+        assert_eq!(v["validation"]["ok"], true);
+        assert!(v["next"].as_str().unwrap().contains("agrees"));
+        // The backend (Orbit) refuses the plan: the model sees a short error, not a plan.
+        let r = tool_call(
+            &s,
+            "kepler_orbit_suggest_plan",
+            json!({"objective":"bad","subtasks":[{"id":"a","prompt":"x"}]}),
+        );
+        assert_eq!(r["result"]["isError"], true);
+        assert!(text(&r).contains("cycle"));
+    }
+
+    #[test]
+    fn outputs_are_redacted_clipped_and_errors_are_short() {
+        let s = server();
+        let r = tool_call(&s, "kepler_forge_analyze", json!({"text":"leak"}));
+        let t = text(&r);
+        assert!(t.contains("found token") && !t.contains("ghp_a1B2"), "{t}");
+        let r = tool_call(&s, "kepler_forge_analyze", json!({"text":"huge"}));
+        let t = text(&r);
+        assert!(t.len() <= MAX_TOOL_OUTPUT_BYTES + TRUNCATION_MARK.len());
+        assert!(t.ends_with(TRUNCATION_MARK));
+        // An unsupported backend operation is a clean tool error.
+        struct Bare;
+        impl Backend for Bare {
+            fn doctor(&self) -> Result<Value, String> {
+                Err("x".into())
+            }
+            fn inspect(&self, _: u32) -> Result<Value, String> {
+                Err("x".into())
+            }
+            fn memory_search(&self, _: &MemorySearch) -> Result<String, String> {
+                Err("x".into())
+            }
+        }
+        let b = McpServer::new(Bare, "0");
+        let line = r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"kepler_vision_status"}}"#;
+        let r: Value = serde_json::from_str(&b.handle_line(line).unwrap()).unwrap();
+        assert_eq!(r["result"]["isError"], true);
+        assert!(text(&r).contains("not available"));
     }
 
     #[test]
@@ -411,19 +699,17 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("\"version\": \"test\""));
+        // Out-of-range numbers are rejected by the schema, not silently clamped.
         let r = call(
             &s,
             r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"kepler_inspect","arguments":{"limit":9999}}}"#,
         );
-        assert!(r["result"]["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("\"limit\": 100"));
+        assert_eq!(r["error"]["code"], INVALID_PARAMS);
         let r = call(
             &s,
-            r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"kepler_memory_search","arguments":{"query":"branch","project":"p1","budget_tokens":10}}}"#,
+            r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"kepler_memory_search","arguments":{"query":"branch","project":"p1","budget_tokens":100}}}"#,
         );
-        assert_eq!(r["result"]["content"][0]["text"], "p1|branch|50");
+        assert_eq!(r["result"]["content"][0]["text"], "p1|branch|100");
         let r = call(
             &s,
             r#"{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"kepler_memory_search","arguments":{"query":"huge","project":"p1"}}}"#,

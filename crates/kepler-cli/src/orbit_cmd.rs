@@ -71,7 +71,7 @@ pub enum OrbitCmd {
     },
 }
 
-fn orbit() -> Result<Orbit, String> {
+pub(crate) fn orbit() -> Result<Orbit, String> {
     let db = kepler_storage::dirs::db_path().map_err(|e| e.to_string())?;
     let root = kepler_storage::dirs::data_dir()
         .map_err(|e| e.to_string())?
@@ -99,7 +99,7 @@ fn load_plan(file: &PathBuf) -> Result<ValidPlan, String> {
     validate_with(&plan, &Guardian::new(rules), &bin).map_err(|e| e.to_string())
 }
 
-fn summary_json(s: &RunSummary) -> Value {
+pub(crate) fn summary_json(s: &RunSummary) -> Value {
     json!({
         "run": s.run.run_id, "name": s.run.name, "status": s.run.status,
         "base": s.run.base_ref, "repo": s.run.repo_path, "max_parallel": s.run.max_parallel,

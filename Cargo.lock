@@ -215,6 +215,7 @@ dependencies = [
 name = "kepler-mcp"
 version = "0.0.4"
 dependencies = [
+ "kepler-policy",
  "serde_json",
 ]
 

@@ -45,10 +45,19 @@ impl Backend for CliBackend {
             None => format!("no relevant memories{note}"),
         })
     }
+
+    fn op(&self, op: &str, args: &serde_json::Map<String, Value>) -> Result<String, String> {
+        crate::mcp_ops::dispatch(op, args)
+    }
 }
 
 pub fn serve() -> ExitCode {
-    let server = McpServer::new(CliBackend, kepler_core::VERSION);
+    // Children started by tools (detached Orbit runs) must not inherit the protocol pipes, or
+    // the client would wait for them after this server exits.
+    #[cfg(windows)]
+    crate::detach::make_std_handles_non_inheritable();
+    let read_only = std::env::var("KEPLER_MCP_READONLY").is_ok_and(|v| !v.is_empty() && v != "0");
+    let server = McpServer::new(CliBackend, kepler_core::VERSION).with_read_only(read_only);
     match server.serve(BufReader::new(stdin().lock()), stdout().lock()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

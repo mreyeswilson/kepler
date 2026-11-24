@@ -54,7 +54,7 @@ fn worker_dir() -> Result<std::path::PathBuf, String> {
 }
 
 /// `KEPLER_VISION_WORKER` wins; otherwise the worker installed by `kepler vision setup`.
-fn worker_command() -> Result<WorkerCommand, VisionOrString> {
+pub(crate) fn worker_command() -> Result<WorkerCommand, VisionOrString> {
     match WorkerCommand::from_env() {
         Err(VisionError::NotConfigured) => {
             let dir = worker_dir()?;
@@ -76,7 +76,7 @@ fn parse_viewport(s: &str) -> Result<Viewport, String> {
     Viewport::parse(s)
 }
 
-fn allowed_hosts() -> Vec<String> {
+pub(crate) fn allowed_hosts() -> Vec<String> {
     parse_allowed_hosts(std::env::var("KEPLER_VISION_ALLOW_HOSTS").ok().as_deref())
 }
 
