@@ -18,6 +18,10 @@ impl Backend for CliBackend {
         inspect_value(limit)
     }
 
+    fn genesis(&self, op: &kepler_mcp::GenesisOp) -> Result<Value, String> {
+        crate::genesis_cmd::mcp_call(op)
+    }
+
     fn memory_search(&self, q: &MemorySearch) -> Result<String, String> {
         let admin = MemoryAdmin::new(db_path()?);
         if !admin

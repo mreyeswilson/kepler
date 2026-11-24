@@ -3,6 +3,7 @@
 #[cfg(windows)]
 mod detach;
 mod forge_model;
+mod genesis_cmd;
 mod hook_claude;
 mod hook_cmd;
 mod inspect;
@@ -113,6 +114,12 @@ enum Command {
     },
     /// Local read-only dashboard on 127.0.0.1 (random port, session token in the URL).
     Ui(ui_cmd::UiArgs),
+    /// Opt-in UI design: project design inspection, model-written UI specifications (your own
+    /// `claude -p`) and static HTML previews. Nothing runs unless you invoke it.
+    Genesis {
+        #[command(subcommand)]
+        cmd: genesis_cmd::GenesisCmd,
+    },
     /// Print version information.
     Version {
         #[arg(long)]
@@ -148,6 +155,7 @@ fn main() -> ExitCode {
         Command::Vision { cmd } => vision_cmd::run(cmd),
         Command::Orbit { cmd } => orbit_cmd::run(cmd),
         Command::Ui(args) => ui_cmd::run(args),
+        Command::Genesis { cmd } => genesis_cmd::run(cmd),
         Command::Mcp { cmd: McpCmd::Serve } => mcp_cmd::serve(),
         Command::Inspect { limit } => match inspect::inspect_value(limit) {
             Ok(v) => {

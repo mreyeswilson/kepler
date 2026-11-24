@@ -25,6 +25,7 @@ kepler-sentinel.workspace = true
 kepler-vision.workspace = true
 kepler-orbit.workspace = true
 kepler-ui.workspace = true
+kepler-genesis.workspace = true
 kepler-policy.workspace = true
 kepler-forge.workspace = true
 clap.workspace = true

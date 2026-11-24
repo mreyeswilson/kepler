@@ -140,6 +140,7 @@ dependencies = [
  "kepler-core",
  "kepler-events",
  "kepler-forge",
+ "kepler-genesis",
  "kepler-ipc",
  "kepler-mcp",
  "kepler-memory",
@@ -193,6 +194,16 @@ version = "0.0.4"
 dependencies = [
  "kepler-events",
  "kepler-policy",
+ "serde_json",
+]
+
+[[package]]
+name = "kepler-genesis"
+version = "0.0.4"
+dependencies = [
+ "kepler-policy",
+ "kepler-vision",
+ "serde",
  "serde_json",
 ]
 

@@ -13,6 +13,7 @@ members = [
     "crates/kepler-memory",
     "crates/kepler-mcp",
     "crates/kepler-ui",
+    "crates/kepler-genesis",
     "crates/kepler-ipc",
     "crates/kepler-core",
     "crates/kepler-cli",
@@ -44,6 +45,7 @@ kepler-orbit = { path = "crates/kepler-orbit" }
 kepler-memory = { path = "crates/kepler-memory" }
 kepler-mcp = { path = "crates/kepler-mcp" }
 kepler-ui = { path = "crates/kepler-ui" }
+kepler-genesis = { path = "crates/kepler-genesis" }
 kepler-ipc = { path = "crates/kepler-ipc" }
 kepler-core = { path = "crates/kepler-core" }
 

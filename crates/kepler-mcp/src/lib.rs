@@ -9,6 +9,9 @@
 //! (removed from the 2025-06-18 revision), no resources, prompts, sampling or logging.
 
 use serde_json::{json, Map, Value};
+
+mod genesis;
+pub use genesis::GenesisOp;
 use std::io::{BufRead, Write};
 
 /// Protocol revisions this server can speak, newest first.
@@ -31,6 +34,11 @@ pub trait Backend {
     fn inspect(&self, limit: u32) -> Result<Value, String>;
     /// Scoped, ranked, budgeted memory retrieval (read-only).
     fn memory_search(&self, q: &MemorySearch) -> Result<String, String>;
+    /// Genesis tools (opt-in UI design). The default answers "unavailable", so other backends
+    /// and mocks need no change.
+    fn genesis(&self, _op: &GenesisOp) -> Result<Value, String> {
+        Err("Genesis is not available in this build".into())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,7 +80,7 @@ fn clip(mut s: String) -> String {
 }
 
 pub fn tool_definitions() -> Value {
-    json!([
+    let mut defs = json!([
         {
             "name": "kepler_doctor",
             "description": "Read-only Kepler diagnostics: runtime, IPC daemon, database, modules, capability contract. Does not start a daemon.",
@@ -96,7 +104,9 @@ pub fn tool_definitions() -> Value {
                 "budget_tokens": {"type": "integer", "minimum": 50, "maximum": 4000, "description": "Estimated-token budget (default 600)"}
             }, "required": ["query", "project"], "additionalProperties": false}
         }
-    ])
+    ]);
+    genesis::append_definitions(&mut defs);
+    defs
 }
 
 impl<B: Backend> McpServer<B> {
@@ -164,7 +174,7 @@ impl<B: Backend> McpServer<B> {
             "protocolVersion": version,
             "capabilities": {"tools": {"listChanged": false}},
             "serverInfo": {"name": "kepler", "version": self.server_version},
-            "instructions": "Kepler exposes read-only tools: diagnostics, inspection and memory search. MCP does not let Kepler intercept your prompts, tool calls or results; automatic features need a native harness adapter."
+            "instructions": "Kepler exposes diagnostics, inspection and memory search (read-only) and the opt-in kepler_genesis_* UI design tools (design calls the user's own Claude CLI and writes under the Kepler data directory; use it only when the user asks to design or redesign an interface). MCP does not let Kepler intercept your prompts, tool calls or results; automatic features need a native harness adapter."
         })
     }
 
@@ -199,6 +209,10 @@ impl<B: Backend> McpServer<B> {
                     budget_tokens: opt_u32(args, "budget_tokens", 600)?.clamp(50, 4000),
                 };
                 Ok(self.finish(self.backend.memory_search(&q)))
+            }
+            g if genesis::is_tool(g) => {
+                let op = genesis::parse(g, args)?;
+                Ok(self.finish(self.backend.genesis(&op).map(|v| pretty(&v))))
             }
             other => Err(format!("unknown tool `{other}`")),
         }
@@ -378,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_list_has_the_three_read_only_tools_with_schemas() {
+    fn tools_list_has_the_base_tools_and_the_genesis_tools_with_schemas() {
         let r = call(
             &server(),
             r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
@@ -387,7 +401,15 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert_eq!(
             names,
-            vec!["kepler_doctor", "kepler_inspect", "kepler_memory_search"]
+            vec![
+                "kepler_doctor",
+                "kepler_inspect",
+                "kepler_memory_search",
+                "kepler_genesis_inspect",
+                "kepler_genesis_design",
+                "kepler_genesis_list",
+                "kepler_genesis_show"
+            ]
         );
         for t in tools {
             assert_eq!(t["inputSchema"]["type"], "object");
@@ -397,6 +419,81 @@ mod tests {
             tools[2]["inputSchema"]["required"],
             json!(["query", "project"])
         );
+    }
+
+    struct GenesisMock;
+    impl Backend for GenesisMock {
+        fn doctor(&self) -> Result<Value, String> {
+            Ok(json!({}))
+        }
+        fn inspect(&self, _: u32) -> Result<Value, String> {
+            Ok(json!({}))
+        }
+        fn memory_search(&self, _: &MemorySearch) -> Result<String, String> {
+            Ok(String::new())
+        }
+        fn genesis(&self, op: &GenesisOp) -> Result<Value, String> {
+            match op {
+                GenesisOp::Design { brief, .. } if brief == "boom" => {
+                    Err("model call failed: timeout".into())
+                }
+                GenesisOp::Design {
+                    brief, candidates, ..
+                } => Ok(json!({"brief": brief, "candidates": candidates})),
+                GenesisOp::Show { id, candidate } => {
+                    Ok(json!({"id": id, "candidate": candidate, "huge": "x".repeat(100_000)}))
+                }
+                other => Ok(json!({"op": format!("{other:?}")})),
+            }
+        }
+    }
+
+    #[test]
+    fn genesis_tools_route_to_the_backend_with_clean_errors() {
+        let s = McpServer::new(GenesisMock, "1");
+        let c = |args: &str| -> Value {
+            call_any(
+                &s,
+                &format!(r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{args}}}"#),
+            )
+        };
+        let r =
+            c(r#"{"name":"kepler_genesis_design","arguments":{"brief":"login","candidates":3}}"#);
+        assert_eq!(r["result"]["isError"], false);
+        assert!(r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("\"candidates\": 3"));
+        let r = c(r#"{"name":"kepler_genesis_design","arguments":{"brief":"boom"}}"#);
+        assert_eq!(r["result"]["isError"], true);
+        assert!(r["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("kepler error: model call failed"));
+        // malformed arguments are protocol errors, not tool results
+        for bad in [
+            r#"{"name":"kepler_genesis_design","arguments":{}}"#,
+            r#"{"name":"kepler_genesis_design","arguments":{"brief":"x","candidates":9}}"#,
+            r#"{"name":"kepler_genesis_show","arguments":{"id":7}}"#,
+            r#"{"name":"kepler_genesis_list","arguments":{"x":1}}"#,
+        ] {
+            assert_eq!(c(bad)["error"]["code"], INVALID_PARAMS, "{bad}");
+        }
+        // output is clipped like every other tool
+        let r = c(r#"{"name":"kepler_genesis_show","arguments":{"id":"g1"}}"#);
+        assert!(
+            r["result"]["content"][0]["text"].as_str().unwrap().len() <= MAX_TOOL_OUTPUT_BYTES + 64
+        );
+        // a backend without Genesis answers with a clean tool error
+        let r = call(
+            &server(),
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"kepler_genesis_list"}}"#,
+        );
+        assert_eq!(r["result"]["isError"], true);
+    }
+
+    fn call_any<B: Backend>(s: &McpServer<B>, line: &str) -> Value {
+        serde_json::from_str(&s.handle_line(line).expect("response")).unwrap()
     }
 
     #[test]
