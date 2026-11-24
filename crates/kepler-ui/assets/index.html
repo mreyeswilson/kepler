@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,18 +8,27 @@
 </head>
 <body>
 <header>
-  <h1>Kepler</h1>
-  <span id="status" class="muted">loading...</span>
-  <nav id="tabs">
-    <button data-tab="overview" class="active">Overview</button>
-    <button data-tab="events">Events</button>
-    <button data-tab="memories">Memory</button>
-    <button data-tab="findings">Findings</button>
-    <button data-tab="orbit">Orbit</button>
+  <div class="top">
+    <h1>Kepler</h1>
+    <span id="health" class="health" title="Salud general"><span id="dot" class="dot"></span><span id="healthtext" class="muted">comprobando...</span></span>
+    <span id="status" class="muted"></span>
+  </div>
+  <nav id="tabs" aria-label="Vistas">
+    <a href="#/resumen" data-tab="resumen">Resumen</a>
+    <a href="#/modulos" data-tab="modulos">Modulos</a>
+    <a href="#/sesiones" data-tab="sesiones">Sesiones</a>
+    <a href="#/eventos" data-tab="eventos">Eventos</a>
+    <a href="#/forge" data-tab="forge">Forge</a>
+    <a href="#/guardian" data-tab="guardian">Guardian</a>
+    <a href="#/memoria" data-tab="memoria">Memory</a>
+    <a href="#/sentinel" data-tab="sentinel">Sentinel</a>
+    <a href="#/orbit" data-tab="orbit">Orbit</a>
+    <a href="#/vision" data-tab="vision">Vision y Focus</a>
   </nav>
+  <div id="warnings"></div>
 </header>
 <main id="view"></main>
-<footer class="muted">Local only (127.0.0.1). Read-only except explicit Orbit approvals when started with --allow-actions. Nothing leaves this machine.</footer>
+<footer class="muted">Solo local (127.0.0.1). Solo lectura salvo aprobaciones de Orbit con --allow-actions. Muestra metadatos, nunca prompts ni salidas. Nada sale de esta maquina.</footer>
 <script src="/app.js"></script>
 </body>
 </html>

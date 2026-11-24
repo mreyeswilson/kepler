@@ -17,6 +17,7 @@
 mod api;
 mod http;
 mod rng;
+mod views;
 
 use http::{read_request, write_response, ParseError, Request, Response};
 use std::net::SocketAddr;

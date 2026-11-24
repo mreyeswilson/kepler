@@ -25,13 +25,44 @@ pub async fn get(cfg: &UiConfig, path: &str, req: &Request) -> Response {
     let path = path.to_string();
     let limit = limit_param(req, 50, 500);
     let min_sev = req.query.get("min_severity").cloned();
-    let result = tokio::task::spawn_blocking(move || route(&cfg, &path, limit, min_sev.as_deref()))
-        .await
-        .unwrap_or_else(|_| Err("internal error".into()));
+    let query = req.query.clone();
+    // The daemon probe is the only async part (and the only one that talks to another process).
+    let daemon = if path == "/api/summary" {
+        Some(probe_daemon().await)
+    } else {
+        None
+    };
+    let result = tokio::task::spawn_blocking(move || {
+        match crate::views::route(&cfg, &path, &query, daemon) {
+            Ok(Some(v)) => Ok(Some(v)),
+            Ok(None) => route(&cfg, &path, limit, min_sev.as_deref()),
+            Err(e) => Err(e),
+        }
+    })
+    .await
+    .unwrap_or_else(|_| Err("internal error".into()));
     match result {
         Ok(Some(v)) => Response::json(200, &v),
         Ok(None) => err(404, "unknown endpoint"),
         Err(e) => err(500, &e),
+    }
+}
+
+/// Ask the daemon (if any) for its version with a short timeout. Never starts a daemon.
+async fn probe_daemon() -> Value {
+    let endpoint = kepler_ipc::Endpoint::from_env();
+    let mut hello = kepler_ipc::HelloOptions::new("kepler-ui");
+    hello.timeout = Duration::from_millis(500);
+    let desc = endpoint.describe();
+    match kepler_ipc::Client::connect(&endpoint, hello).await {
+        Ok(mut c) => match c.ping().await {
+            Ok(()) => {
+                json!({"state": "running", "version": c.server_version.clone(), "endpoint": desc,
+                "uptime_secs": null, "note": "el daemon no expone su uptime"})
+            }
+            Err(_) => json!({"state": "unresponsive", "endpoint": desc}),
+        },
+        Err(_) => json!({"state": "stopped", "endpoint": desc}),
     }
 }
 
@@ -85,16 +116,6 @@ fn route(
                 "findings": {"open": findings.len(), "by_severity": by_sev},
                 "orbit": {"runs": runs.len(), "tasks_awaiting_approval": awaiting},
             })
-        }
-        "/api/events" => {
-            if !exists {
-                return Ok(Some(empty("no database yet")));
-            }
-            let rows = reader()?.recent_events(limit).map_err(|e| e.to_string())?;
-            json!({ "events": rows.into_iter().map(|e| json!({
-                "event_id": e.event_id, "kind": e.kind, "session_id": e.session_id,
-                "decision": e.decision, "reason": e.reason, "payload_bytes": e.payload_bytes,
-            })).collect::<Vec<_>>() })
         }
         "/api/metrics" => {
             if !exists {
