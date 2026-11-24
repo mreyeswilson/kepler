@@ -1,5 +1,6 @@
 use crate::service::{Ctx, MemoryService};
 use kepler_events::{ContextRequested, Envelope, Outcome, Payload};
+use crate::directive::user_directives;
 use kepler_forge::memory_directive;
 use kepler_policy::{Advisory, Enrichment, InputClass, ModuleError, OptionalModule};
 use std::collections::HashMap;
@@ -35,6 +36,16 @@ pub fn verification_command(cmd: &str) -> Option<String> {
         return None;
     }
     let lower = c.to_lowercase();
+    // Never keep a command that smells like it carries a credential.
+    if [
+        "token", "secret", "passw", "apikey", "api-key", "api_key", "auth", "bearer", "cookie",
+        "credential",
+    ]
+    .iter()
+    .any(|w| lower.contains(w))
+    {
+        return None;
+    }
     let words: Vec<&str> = lower.split_whitespace().collect();
     let first = *words.first()?;
     let second = words.get(1).copied().unwrap_or("");
@@ -128,9 +139,13 @@ impl OptionalModule for MemoryModule {
         if !self.service.enabled(&ctx.project_id) {
             return Ok(Vec::new());
         }
-        if let Some(d) = memory_directive(&input.text) {
-            // Explicit, user-authored: stored immediately with trust `user`.
-            self.service.remember_directive(&ctx, &d.text, &event.id);
+        // Explicit, user-authored phrases (es/en): stored immediately with trust `user`.
+        let mut directives = user_directives(&input.text);
+        if directives.is_empty() {
+            directives.extend(memory_directive(&input.text).map(|d| d.text));
+        }
+        for d in &directives {
+            self.service.remember_directive(&ctx, d, &event.id);
         }
         self.recall(&ctx, &input.text, self.service.config().budget_tokens)
     }
@@ -145,7 +160,12 @@ impl OptionalModule for MemoryModule {
             return Ok(Vec::new());
         }
         let Some(q) = request.query.as_deref() else {
-            return Ok(Vec::new());
+            // No query: the session-start brief of this project's durable memories (ADR-0027).
+            let r = self
+                .service
+                .brief(&ctx, request.budget_tokens)
+                .map_err(|e| ModuleError(format!("brief failed: {e}")))?;
+            return Ok(r.block.map(Enrichment::recalled).into_iter().collect());
         };
         self.recall(&ctx, q, request.budget_tokens)
     }
@@ -466,6 +486,63 @@ mod tests {
             "s2",
             serde_json::json!({"budget_tokens": 200}),
         ));
-        assert!(none.decision.is_passthrough());
+        // No query: the project brief (ADR-0027), labeled and scoped to the project.
+        match none.decision {
+            Decision::Enrich { derived } => {
+                assert!(derived[0].text.contains("user-stated"));
+                assert!(derived[0].text.contains("parser fuzzing"));
+            }
+            d => panic!("{d:?}"),
+        }
+    }
+
+    #[test]
+    fn brief_is_project_scoped_and_labels_provenance() {
+        let (e, w) = engine();
+        let at = |proj: &str, session: &str, kind: &str, p: serde_json::Value| {
+            let json = serde_json::json!({
+                "version": 1, "id": format!("e-{kind}-{session}"), "type": kind,
+                "timestamp": "2026-01-02T03:04:05Z", "harness": "claude-code",
+                "project_id": proj, "session_id": session, "correlation_id": "c",
+                "payload": p
+            });
+            Envelope::parse(json.to_string().as_bytes()).unwrap()
+        };
+        e.evaluate(&at(
+            "pA",
+            "s1",
+            "input.received",
+            serde_json::json!({"text": "Recuerda que usamos pnpm y no npm"}),
+        ));
+        e.evaluate(&at(
+            "pA",
+            "s1",
+            "memory.candidate",
+            serde_json::json!({"text": "Observed: project stack: Rust (Cargo.toml)", "category": "stack"}),
+        ));
+        e.evaluate(&at(
+            "pA",
+            "s1",
+            "agent.settled",
+            serde_json::json!({"outcome": "ok", "duration_ms": 0}),
+        ));
+        assert!(w.flush(Duration::from_secs(2)));
+        let brief = |proj: &str| {
+            e.evaluate(&at(
+                proj,
+                "s2",
+                "context.requested",
+                serde_json::json!({"budget_tokens": 400}),
+            ))
+        };
+        match brief("pA").decision {
+            Decision::Enrich { derived } => {
+                let t = &derived[0].text;
+                assert!(t.contains("[project, user-stated, today] usamos pnpm y no npm"), "{t}");
+                assert!(t.contains("observed"), "{t}");
+            }
+            d => panic!("{d:?}"),
+        }
+        assert!(brief("pB").decision.is_passthrough());
     }
 }

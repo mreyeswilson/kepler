@@ -5,6 +5,7 @@ mod detach;
 mod forge_model;
 mod hook_claude;
 mod hook_cmd;
+mod hook_flow;
 mod inspect;
 mod mcp_cmd;
 mod memory_cmd;
@@ -299,11 +300,13 @@ async fn doctor_cmd(json: bool) -> ExitCode {
         let mut v = report.to_json();
         if let Some(o) = v.as_object_mut() {
             o.insert("forge_model".into(), forge_model::doctor_value());
+            o.insert("flow".into(), inspect::flow_doctor_value());
         }
         println!("{v}");
     } else {
         print!("{}", report.to_text());
         print!("{}", forge_model::doctor_text());
+        print!("{}", inspect::flow_doctor_text());
     }
     ExitCode::SUCCESS
 }

@@ -6,10 +6,12 @@
 //! Nothing here calls a model or the network.
 
 mod admin;
+mod directive;
 mod module;
 pub mod rank;
 mod service;
 
 pub use admin::{row_to_json, MemoryAdmin};
+pub use directive::user_directives;
 pub use module::MemoryModule;
 pub use service::{Consolidation, Ctx, MemoryConfig, MemoryService, Retrieval};

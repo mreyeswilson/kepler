@@ -232,6 +232,35 @@ impl MemoryService {
         })
     }
 
+    /// Query-less session-start brief of the project's durable memories (ADR-0027), scoped to
+    /// (project, branch) and bounded by `budget_tokens` (estimated) and `max_items`.
+    pub fn brief(&self, ctx: &Ctx, budget_tokens: u32) -> Result<Retrieval, StorageError> {
+        let start = Instant::now();
+        let cands =
+            self.with_reader(|r| r.memory_brief(&ctx.project_id, ctx.branch.as_deref(), 30))?;
+        let budget = budget_tokens.min(4000);
+        let selection = select(rank(cands), budget, self.cfg.max_items, self.cfg.family);
+        let block = crate::rank::render_brief(&selection);
+        if !selection.items.is_empty() {
+            let ids: Vec<i64> = selection.items.iter().map(|r| r.candidate.id).collect();
+            let (p, s, t, n) = (
+                ctx.project_id.clone(),
+                ctx.session_id.clone(),
+                selection.tokens,
+                selection.items.len() as u32,
+            );
+            self.writer.submit(move |conn| {
+                mark_used(conn, &ids)?;
+                record_metric(conn, &p, &s, "memory_brief", t, n, true)
+            });
+        }
+        Ok(Retrieval {
+            block,
+            selection,
+            elapsed: start.elapsed(),
+        })
+    }
+
     /// Persist an explicit user directive ("remember that ...") right away (non-blocking).
     /// Returns `false` when it was rejected by sanitization (secrets only, too large...).
     pub fn remember_directive(&self, ctx: &Ctx, text: &str, reference: &str) -> bool {

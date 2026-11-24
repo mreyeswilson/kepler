@@ -145,6 +145,36 @@ fn envelope(ev: HookEvent, kind: &str, payload: Value, input: &Value, ctx: &Ctx)
     })
 }
 
+/// Key under which the adapter hands the git branch (read from `.git/HEAD`) to the pure mapping.
+/// Claude Code never sends it; it is cleaned of control characters and bounded.
+pub const BRANCH_KEY: &str = "_kepler_branch";
+
+fn branch_of(input: &Value) -> Option<String> {
+    let b = str_field(input, BRANCH_KEY)?;
+    let clean: String = b.chars().filter(|c| !c.is_control()).take(120).collect();
+    (!clean.trim().is_empty()).then_some(clean)
+}
+
+/// Envelope for an event the adapter derives itself (`files.changed`, `memory.candidate`,
+/// `context.requested`), tied to the same project/session as the hook input. `suffix` keeps ids
+/// unique within one hook invocation.
+pub fn aux_envelope(input: &Value, kind: &str, payload: Value, ctx: &Ctx, suffix: &str) -> Value {
+    let id = format!("cc-{}-{suffix}", ctx.nonce);
+    let session = sanitize_identifier(str_field(input, "session_id").unwrap_or(""), "cc-unknown");
+    let cwd = str_field(input, "cwd").unwrap_or("");
+    json!({
+        "version": 1,
+        "id": id,
+        "type": kind,
+        "timestamp": ctx.timestamp,
+        "harness": HARNESS,
+        "project_id": project_id_from_cwd(cwd),
+        "session_id": session,
+        "correlation_id": id,
+        "payload": payload,
+    })
+}
+
 /// Paths that tools take in `tool_input`.
 fn tool_paths(input: &Value) -> (Vec<String>, bool) {
     let mut out = Vec::new();
@@ -187,7 +217,12 @@ fn response_text(resp: &Value) -> String {
     }
 }
 
-fn response_ok(resp: &Value) -> bool {
+/// Bytes of the tool result text (bounded by the 8 MiB stdin cap).
+pub fn response_len(input: &Value) -> usize {
+    response_text(input.get("tool_response").unwrap_or(&Value::Null)).len()
+}
+
+pub fn response_ok(resp: &Value) -> bool {
     match resp {
         Value::Object(o) => {
             let flag = |k: &str| o.get(k).and_then(Value::as_bool) == Some(true);
@@ -209,13 +244,11 @@ pub fn build_envelope(ev: HookEvent, input: &Value, ctx: &Ctx) -> Option<Value> 
             if text.is_empty() || text.len() > MAX_TEXT_BYTES || text.contains('\0') {
                 return None;
             }
-            Some(envelope(
-                ev,
-                "input.received",
-                json!({ "text": text }),
-                input,
-                ctx,
-            ))
+            let mut payload = json!({ "text": text });
+            if let Some(b) = branch_of(input) {
+                payload["branch"] = json!(b);
+            }
+            Some(envelope(ev, "input.received", payload, input, ctx))
         }
         HookEvent::PreToolUse => {
             let tool = clip(str_field(input, "tool_name")?, 128);
@@ -289,13 +322,13 @@ pub fn build_envelope(ev: HookEvent, input: &Value, ctx: &Ctx) -> Option<Value> 
             input,
             ctx,
         )),
-        HookEvent::SessionStart => Some(envelope(
-            ev,
-            "agent.started",
-            json!({ "agent": HARNESS }),
-            input,
-            ctx,
-        )),
+        HookEvent::SessionStart => {
+            let mut payload = json!({ "agent": HARNESS });
+            if let Some(b) = branch_of(input) {
+                payload["branch"] = json!(b);
+            }
+            Some(envelope(ev, "agent.started", payload, input, ctx))
+        }
         HookEvent::SessionEnd => {
             let payload = match str_field(input, "reason").filter(|r| !r.contains('\0')) {
                 Some(r) => json!({ "reason": clip(r, 128) }),
@@ -346,47 +379,134 @@ fn render_derived(decision: &Decision) -> Option<String> {
 /// Hook stdout for a verdict. `None` = print nothing (Claude Code proceeds normally).
 /// Exit code is always 0: Kepler never uses exit 2 (a blocked action is expressed with
 /// `permissionDecision`, which carries a reason and works across versions).
+#[cfg(test)]
 pub fn render_output(ev: HookEvent, outcome: &EmitOutcome) -> Option<String> {
-    let EmitOutcome::Verdict(v) = outcome else {
-        return None;
-    };
-    let out = match (ev, &v.decision) {
-        (HookEvent::UserPromptSubmit, d @ Decision::Enrich { .. }) => {
-            let ctx = render_derived(d)?;
-            json!({"hookSpecificOutput": {
-                "hookEventName": "UserPromptSubmit",
-                "additionalContext": ctx,
-            }})
+    render_full(ev, outcome, &Extras::default())
+}
+
+/// What the adapter adds next to the core's verdict (ADR-0027). Every text is Kepler-generated,
+/// labeled and bounded by its producer; none of it is ever a user instruction.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Extras {
+    /// Visible to the user (`systemMessage`).
+    pub system_message: Option<String>,
+    /// Labeled blocks for the model (`additionalContext`), after any derived context.
+    pub context: Vec<String>,
+    /// PreToolUse: replacement tool input (only ever a *bound* on an unbounded request).
+    pub updated_input: Option<Value>,
+}
+
+/// Total `additionalContext` stays under Claude Code's 10,000-character spill threshold.
+const MAX_ADDITIONAL_CONTEXT_CHARS: usize = 9000;
+
+fn join_context(parts: Vec<String>) -> Option<String> {
+    let mut out = String::new();
+    for p in parts.into_iter().filter(|p| !p.is_empty()) {
+        if !out.is_empty() {
+            out.push_str("\n\n");
         }
-        (HookEvent::PreToolUse, Decision::Deny { reason }) => json!({"hookSpecificOutput": {
+        if out.chars().count() + p.chars().count() > MAX_ADDITIONAL_CONTEXT_CHARS {
+            break; // whole blocks only: never cut a closing label
+        }
+        out.push_str(&p);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+fn clean_message(m: &str) -> String {
+    m.chars()
+        .filter(|c| !c.is_control() || *c == '\n')
+        .take(2000)
+        .collect()
+}
+
+pub fn render_full(ev: HookEvent, outcome: &EmitOutcome, extras: &Extras) -> Option<String> {
+    let verdict = match outcome {
+        EmitOutcome::Verdict(v) => Some(v),
+        _ => None,
+    };
+    let decision = verdict.map(|v| &v.decision);
+    let system = extras.system_message.as_deref().map(clean_message);
+    let out = match (ev, decision) {
+        (HookEvent::UserPromptSubmit | HookEvent::SessionStart, d) => {
+            let mut parts: Vec<String> = d.and_then(render_derived).into_iter().collect();
+            parts.extend(extras.context.iter().cloned());
+            let ctx = join_context(parts);
+            if ctx.is_none() && system.is_none() {
+                return None;
+            }
+            let mut o = json!({});
+            if let Some(c) = ctx {
+                o["hookSpecificOutput"] = json!({"hookEventName": ev.name(), "additionalContext": c});
+            }
+            if let Some(s) = system {
+                o["systemMessage"] = json!(s);
+            }
+            o
+        }
+        (HookEvent::Stop | HookEvent::SessionEnd, _) => {
+            json!({"systemMessage": system?})
+        }
+        (HookEvent::PreToolUse, Some(Decision::Deny { reason })) => json!({"hookSpecificOutput": {
             "hookEventName": "PreToolUse",
             "permissionDecision": "deny",
             "permissionDecisionReason": format!("Kepler blocked this tool call ({}).", safe_reason(reason)),
         }}),
-        (HookEvent::PreToolUse, Decision::RequireApproval { reason }) => {
+        (HookEvent::PreToolUse, Some(Decision::RequireApproval { reason })) => {
             json!({"hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "ask",
                 "permissionDecisionReason": format!("Kepler requires approval for this tool call ({}).", safe_reason(reason)),
             }})
         }
-        (HookEvent::PostToolUse, Decision::Redact { kinds, .. }) => {
-            let kinds: Vec<&str> = kinds
-                .iter()
-                .map(String::as_str)
-                .filter(|k| {
-                    k.len() <= 32 && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                })
-                .take(8)
-                .collect();
-            // Observe only: the tool output is not modified (Claude Code cannot be asked to
-            // rewrite a built-in tool's result). The user is warned; the secret is never echoed.
-            json!({"systemMessage": format!(
-                "Kepler: the output of this tool call appears to contain secrets ({}). It was not modified and Kepler did not store it; consider rotating the credential.",
-                if kinds.is_empty() { "unclassified".to_string() } else { kinds.join(", ") }
-            )})
+        (HookEvent::PreToolUse, _) => {
+            // Guardian token optimization: only reached when the preflight allowed the call.
+            let updated = extras.updated_input.clone()?;
+            let mut h = json!({"hookEventName": "PreToolUse", "updatedInput": updated});
+            if let Some(c) = join_context(extras.context.clone()) {
+                h["additionalContext"] = json!(c);
+            }
+            json!({ "hookSpecificOutput": h })
         }
-        _ => return None,
+        (HookEvent::PostToolUse, d) => {
+            let redact = match d {
+                Some(Decision::Redact { kinds, .. }) => {
+                    let kinds: Vec<&str> = kinds
+                        .iter()
+                        .map(String::as_str)
+                        .filter(|k| {
+                            k.len() <= 32 && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                        })
+                        .take(8)
+                        .collect();
+                    // Observe only: the tool output is not modified (Claude Code cannot be
+                    // asked to rewrite a built-in tool's result here). The user is warned; the
+                    // secret is never echoed.
+                    Some(format!(
+                        "Kepler: the output of this tool call appears to contain secrets ({}). It was not modified and Kepler did not store it; consider rotating the credential.",
+                        if kinds.is_empty() { "unclassified".to_string() } else { kinds.join(", ") }
+                    ))
+                }
+                _ => None,
+            };
+            let msg = match (redact, system) {
+                (Some(r), Some(s)) => Some(format!("{r}\n{s}")),
+                (r, s) => r.or(s),
+            };
+            let ctx = join_context(extras.context.clone());
+            if msg.is_none() && ctx.is_none() {
+                return None;
+            }
+            let mut o = json!({});
+            if let Some(m) = msg {
+                o["systemMessage"] = json!(m);
+            }
+            if let Some(c) = ctx {
+                o["hookSpecificOutput"] =
+                    json!({"hookEventName": "PostToolUse", "additionalContext": c});
+            }
+            o
+        }
     };
     Some(out.to_string())
 }

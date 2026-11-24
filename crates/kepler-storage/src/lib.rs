@@ -29,7 +29,7 @@ pub use kepler_policy::sensitive::{is_sensitive_path, resolve_within, PathError}
 pub use memory::{
     apply_retention, content_hash, fts_query, jaccard, mark_used, purge_memories, record_metric,
     set_setting, store_memory, tokens, Candidate, MemoryFilter, MemoryQuery, MemoryRow,
-    MemoryStats, MetricRow, NewMemory, PurgeFilter, Scope, SourceRow, StoreOutcome,
+    MemoryStats, MetricRow, MetricSummary, NewMemory, SessionMetric, PurgeFilter, Scope, SourceRow, StoreOutcome,
     MAX_MEMORY_TEXT_BYTES, TRUST_DERIVED, TRUST_USER,
 };
 pub use migrations::{migrate, LATEST_VERSION};

@@ -13,7 +13,7 @@ mod diff;
 mod module;
 mod rules;
 
-pub use audit::{audit_repo, AuditError, AuditReport, AuditScope};
+pub use audit::{audit_files, audit_repo, AuditError, AuditReport, AuditScope};
 pub use check::{
     detect, parse_output as parse_check_output, run_check, CheckResult, CheckSpec, CheckStatus,
     DEFAULT_TIMEOUT as CHECK_TIMEOUT,

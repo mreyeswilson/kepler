@@ -439,6 +439,96 @@ impl Reader {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// Query-less candidates for a session-start brief (ADR-0027): the live memories visible to
+    /// (project, branch), user-stated and highest trust first, then newest. Same scope rules as
+    /// [`Self::memory_candidates`]; session-scoped memories of other sessions are never included.
+    pub fn memory_brief(
+        &self,
+        project_id: &str,
+        branch: Option<&str>,
+        limit: u32,
+    ) -> Result<Vec<Candidate>, StorageError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT m.id, m.content, m.scope, m.source, m.trust, m.category,
+                    julianday('now') - julianday(COALESCE(m.updated_at, m.created_at)), m.use_count
+             FROM memories m
+             WHERE m.superseded_by IS NULL
+               AND ( m.scope = 'user'
+                  OR (m.project_id = ?1 AND ( m.scope = 'project'
+                       OR (m.scope = 'branch' AND m.scope_key = ?2) )) )
+             ORDER BY m.trust DESC, COALESCE(m.updated_at, m.created_at) DESC, m.id DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(
+            params![
+                project_id,
+                branch.unwrap_or("\u{1}none"),
+                limit.clamp(1, 50)
+            ],
+            |r| {
+                let scope: String = r.get(2)?;
+                let trust: i64 = r.get(4)?;
+                Ok(Candidate {
+                    id: r.get(0)?,
+                    content: r.get(1)?,
+                    scope: Scope::parse(&scope).unwrap_or(Scope::Project),
+                    source: r.get(3)?,
+                    trust: u8::try_from(trust.clamp(0, 100)).unwrap_or(0),
+                    category: r.get(5)?,
+                    bm25: -1.0,
+                    age_days: r.get::<_, f64>(6)?.max(0.0),
+                    use_count: r.get(7)?,
+                })
+            },
+        )?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Token metrics aggregated per kind and basis (`estimated` / `measured`) for a project
+    /// (or all projects). Never mixes the two bases.
+    pub fn metrics_summary(
+        &self,
+        project_id: Option<&str>,
+    ) -> Result<Vec<MetricSummary>, StorageError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT kind, estimated, COUNT(*), COALESCE(SUM(tokens), 0), COALESCE(SUM(items), 0)
+             FROM context_metrics WHERE ?1 IS NULL OR project_id = ?1
+             GROUP BY kind, estimated ORDER BY kind, estimated",
+        )?;
+        let rows = stmt.query_map(params![project_id], |r| {
+            Ok(MetricSummary {
+                kind: r.get(0)?,
+                estimated: r.get::<_, i64>(1)? != 0,
+                rows: r.get(2)?,
+                tokens: r.get(3)?,
+                items: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// Metrics grouped by project, session, kind and basis, most recently active sessions
+    /// first (`limit` groups, at most 500).
+    pub fn metrics_by_session(&self, limit: u32) -> Result<Vec<SessionMetric>, StorageError> {
+        let mut stmt = self.conn().prepare(
+            "SELECT project_id, session_id, kind, estimated, COALESCE(SUM(tokens), 0),
+                    COALESCE(SUM(items), 0)
+             FROM context_metrics GROUP BY project_id, session_id, kind, estimated
+             ORDER BY MAX(id) DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit.clamp(1, 500)], |r| {
+            Ok(SessionMetric {
+                project_id: r.get(0)?,
+                session_id: r.get(1)?,
+                kind: r.get(2)?,
+                estimated: r.get::<_, i64>(3)? != 0,
+                tokens: r.get(4)?,
+                items: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     pub fn list_memories(&self, f: &MemoryFilter) -> Result<Vec<MemoryRow>, StorageError> {
         let mut stmt = self.conn().prepare(
             "SELECT id, project_id, scope, scope_key, content, source, trust, category, created_at,
@@ -547,6 +637,25 @@ impl Reader {
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionMetric {
+    pub project_id: String,
+    pub session_id: String,
+    pub kind: String,
+    pub estimated: bool,
+    pub tokens: i64,
+    pub items: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetricSummary {
+    pub kind: String,
+    pub estimated: bool,
+    pub rows: i64,
+    pub tokens: i64,
+    pub items: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

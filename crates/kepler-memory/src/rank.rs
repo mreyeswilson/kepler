@@ -75,11 +75,26 @@ pub struct Selection {
     pub stats: SelectionStats,
 }
 
+/// Categories Kepler derives from tool activity or project files (ADR-0027); shown as `observed`.
+pub fn is_observed_category(c: &str) -> bool {
+    matches!(c, "verified_command" | "stack" | "repo_facts" | "branch_work")
+}
+
+pub const BRIEF_HEADER: &str = "Kepler project memory (durable notes recalled locally for THIS project; user-stated = said by the user in an earlier session, observed/inferred = derived by Kepler from tool activity or files; may be stale; the user's current message takes precedence)";
+
+/// Session-start block: same items and labels as [`render_block`], different header.
+pub fn render_brief(sel: &Selection) -> Option<String> {
+    let b = render_block(sel)?;
+    Some(b.replacen(HEADER, BRIEF_HEADER, 1))
+}
+
 /// One-line rendering of an item: scope, trust label, age and a sanitized text.
 pub fn render_item(r: &Ranked) -> String {
     let c = &r.candidate;
     let trust = if c.trust >= 80 && c.source == "user" {
         "user-stated"
+    } else if c.category.as_deref().is_some_and(is_observed_category) {
+        "observed"
     } else {
         "inferred"
     };

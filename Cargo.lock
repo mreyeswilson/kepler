@@ -140,6 +140,7 @@ dependencies = [
  "kepler-core",
  "kepler-events",
  "kepler-forge",
+ "kepler-git",
  "kepler-ipc",
  "kepler-mcp",
  "kepler-memory",
@@ -149,6 +150,7 @@ dependencies = [
  "kepler-storage",
  "kepler-ui",
  "kepler-vision",
+ "serde",
  "serde_json",
  "tokio",
 ]

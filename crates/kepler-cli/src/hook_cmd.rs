@@ -5,7 +5,8 @@
 //! prints nothing, which Claude Code treats as "no opinion". The only outputs that change
 //! behavior are explicit Guardian verdicts (`deny` / `require_approval`) on PreToolUse.
 
-use crate::hook_claude::{build_envelope, render_output, Ctx, HookEvent};
+use crate::hook_claude::{build_envelope, render_full, Ctx, Extras, HookEvent};
+use crate::hook_flow as flow;
 use clap::{Args, Subcommand};
 use kepler_core::emit::emit_in_process;
 use kepler_core::{emit_one_shot, EmitOptions, EmitOutcome};
@@ -73,7 +74,7 @@ fn claude_code(args: &ClaudeCodeArgs) -> Option<String> {
     if raw.len() as u64 > MAX_STDIN_BYTES {
         return None;
     }
-    let input = match parse_stdin(&raw) {
+    let mut input = match parse_stdin(&raw) {
         Ok(v) => v,
         Err(why) => {
             // Never the payload itself. Claude Code shows hook stderr only in verbose mode.
@@ -84,8 +85,212 @@ fn claude_code(args: &ClaudeCodeArgs) -> Option<String> {
             return None;
         }
     };
-    let outcome = process(ev, &input, args.no_autostart, &Endpoint::from_env())?;
-    render_output(ev, &outcome)
+    let endpoint = Endpoint::from_env();
+    // The project is the session's starting directory (stable when the agent `cd`s), so Memory
+    // and Sentinel always see the same project id.
+    let project = flow::project_dir(&input);
+    if let (Some(p), true) = (&project, input.is_object()) {
+        input["cwd"] = json!(p.to_string_lossy());
+    }
+    let mut x = Flow {
+        ev,
+        input: &input,
+        project: project.as_deref(),
+        no_autostart: args.no_autostart,
+        endpoint: &endpoint,
+        extras: Extras::default(),
+    };
+    let outcome = x.run().unwrap_or(EmitOutcome::Passthrough {
+        reason: "unmapped".into(),
+    });
+    render_full(ev, &outcome, &x.extras)
+}
+
+/// One hook invocation: the core's verdict plus the adapter's in-flow features (ADR-0027).
+struct Flow<'a> {
+    ev: HookEvent,
+    input: &'a Value,
+    project: Option<&'a std::path::Path>,
+    no_autostart: bool,
+    endpoint: &'a Endpoint,
+    extras: Extras,
+}
+
+fn sget<'a>(v: &'a Value, k: &str) -> &'a str {
+    v.get(k).and_then(Value::as_str).unwrap_or("")
+}
+
+impl Flow<'_> {
+    fn session(&self) -> String {
+        crate::hook_claude::sanitize_identifier(sget(self.input, "session_id"), "cc-unknown")
+    }
+
+    fn project_id(&self) -> String {
+        crate::hook_claude::project_id_from_cwd(sget(self.input, "cwd"))
+    }
+
+    /// Send a derived event; the answer is only used when the caller needs it.
+    fn emit_aux(&self, kind: &str, payload: Value, suffix: &str) -> Option<EmitOutcome> {
+        let env = crate::hook_claude::aux_envelope(self.input, kind, payload, &new_ctx(), suffix);
+        emit_env(env, false, self.no_autostart, self.endpoint)
+    }
+
+    fn with_branch(&self) -> Value {
+        let mut v = self.input.clone();
+        if let Some(b) = self.project.and_then(flow::git_branch) {
+            v[crate::hook_claude::BRANCH_KEY] = json!(b);
+        }
+        v
+    }
+
+    fn run(&mut self) -> Option<EmitOutcome> {
+        let (ev, input) = (self.ev, self.input);
+        match ev {
+            HookEvent::UserPromptSubmit => {
+                let with_branch = self.with_branch();
+                let outcome = process(ev, &with_branch, self.no_autostart, self.endpoint)?;
+                let user_typed = input
+                    .get("prompt")
+                    .and_then(Value::as_str)
+                    .is_some_and(|p| !is_not_a_user_prompt(p));
+                if user_typed && !flow::env_off("KEPLER_SENTINEL") {
+                    let session = self.session();
+                    let mut st = flow::State::load(&session);
+                    let rows = flow::take_pending_findings(&self.project_id(), &mut st);
+                    if let Some(b) = flow::pending_block(&rows) {
+                        self.extras.context.push(b);
+                        st.save(&session);
+                    }
+                }
+                Some(outcome)
+            }
+            HookEvent::SessionStart => {
+                let with_branch = self.with_branch();
+                let started = process(ev, &with_branch, self.no_autostart, self.endpoint);
+                if let Some(p) = self.project {
+                    let session = self.session();
+                    let mut st = flow::State::load(&session);
+                    flow::take_baseline(p, &mut st);
+                    st.save(&session);
+                    flow::prune_states();
+                }
+                if flow::env_off("KEPLER_MEMORY") {
+                    return started;
+                }
+                // Project-scoped brief of durable memories (no query: ADR-0027).
+                let budget = std::env::var("KEPLER_MEMORY_BRIEF_TOKENS")
+                    .ok()
+                    .and_then(|v| v.trim().parse::<u32>().ok())
+                    .unwrap_or(400)
+                    .clamp(50, 2000);
+                self.emit_aux("context.requested", json!({ "budget_tokens": budget }), "brief")
+                    .or(started)
+            }
+            HookEvent::PreToolUse => {
+                let outcome = process(ev, input, self.no_autostart, self.endpoint)?;
+                let blocked = matches!(
+                    &outcome,
+                    EmitOutcome::Verdict(v) if matches!(
+                        v.decision,
+                        kepler_policy::Decision::Deny { .. }
+                            | kepler_policy::Decision::RequireApproval { .. }
+                    )
+                );
+                if !blocked {
+                    let cfg = kepler_policy::TokenGuardConfig::from_env();
+                    if let Some(b) = flow::bound_read(input, &cfg) {
+                        self.extras.updated_input = Some(b.updated_input);
+                        self.extras.context.push(b.note);
+                        flow::record_metrics(&self.project_id(), &self.session(), vec![b.metric]);
+                    }
+                }
+                Some(outcome)
+            }
+            HookEvent::PostToolUse => {
+                let outcome = process(ev, input, self.no_autostart, self.endpoint)?;
+                self.post_tool();
+                Some(outcome)
+            }
+            HookEvent::Stop => {
+                let session = self.session();
+                let mut st = flow::State::load(&session);
+                if let (Some(p), false, false) =
+                    (self.project, st.facts_sent, flow::env_off("KEPLER_MEMORY"))
+                {
+                    st.facts_sent = true;
+                    for (text, cat) in flow::observed_facts(p) {
+                        self.emit_aux(
+                            "memory.candidate",
+                            json!({ "text": text, "category": cat }),
+                            cat,
+                        );
+                    }
+                }
+                let outcome = process(ev, input, self.no_autostart, self.endpoint);
+                if let Some(p) = self.project {
+                    self.extras.system_message =
+                        flow::stop_audit(p, &self.project_id(), &session, &mut st).message;
+                }
+                self.account_usage(&mut st);
+                st.save(&session);
+                outcome
+            }
+            HookEvent::SessionEnd => {
+                let session = self.session();
+                let mut st = flow::State::load(&session);
+                let outcome = process(ev, input, self.no_autostart, self.endpoint);
+                self.account_usage(&mut st);
+                flow::State::remove(&session);
+                outcome
+            }
+        }
+    }
+
+    fn account_usage(&self, st: &mut flow::State) {
+        if let Some(t) = input_str(self.input, "transcript_path") {
+            let metrics = flow::transcript_usage(t, st);
+            flow::record_metrics(&self.project_id(), &self.session(), metrics);
+        }
+    }
+
+    /// PostToolUse extras: changed files for Sentinel, Guardian notes and metrics.
+    fn post_tool(&mut self) {
+        let (input, Some(project)) = (self.input, self.project) else {
+            return;
+        };
+        let tool = sget(input, "tool_name");
+        let session = self.session();
+        let mut st = flow::State::load(&session);
+        let sentinel_on = !flow::env_off("KEPLER_SENTINEL");
+        let mut changed: Vec<String> = Vec::new();
+        let ok = crate::hook_claude::response_ok(input.get("tool_response").unwrap_or(&Value::Null));
+        if sentinel_on && ok && flow::is_edit_tool(tool) {
+            changed.extend(flow::edited_file(project, input));
+        } else if sentinel_on && tool == "Bash" {
+            let cmd = input
+                .get("tool_input")
+                .and_then(|t| t.get("command"))
+                .and_then(Value::as_str)
+                .unwrap_or("");
+            changed = flow::bash_changed(project, cmd, &mut st);
+        }
+        if !changed.is_empty() {
+            changed.truncate(kepler_events::limits::MAX_PATHS);
+            for c in &changed {
+                st.add_file(c.clone());
+            }
+            self.emit_aux("files.changed", json!({ "paths": changed }), "files");
+        }
+        let cfg = kepler_policy::TokenGuardConfig::from_env();
+        let (notes, metrics) = flow::post_tool_notes(input, &mut st, &cfg);
+        self.extras.context.extend(notes);
+        flow::record_metrics(&self.project_id(), &session, metrics);
+        st.save(&session);
+    }
+}
+
+fn input_str<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
+    v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
 
 pub struct StdinError {
@@ -180,10 +385,25 @@ fn process(
         });
     }
     let env = build_envelope(ev, input, &new_ctx())?;
+    // Guardian preflight is a security boundary: evaluate locally if the daemon cannot answer
+    // in time (cold start, load, crash).
+    let outcome = emit_env(env, ev == HookEvent::PreToolUse, no_autostart, endpoint)?;
+    if ev == HookEvent::UserPromptSubmit {
+        return Some(with_model_note(input, outcome));
+    }
+    Some(outcome)
+}
+
+/// Deliver one envelope with the hook deadline. With `local_fallback`, a daemon that cannot
+/// answer is replaced by the in-process engine (same Guardian rules, no storage).
+fn emit_env(
+    env: Value,
+    local_fallback: bool,
+    no_autostart: bool,
+    endpoint: &Endpoint,
+) -> Option<EmitOutcome> {
     let total = timeout_from_env();
-    // Guardian preflight is a security boundary: keep a copy to evaluate locally if the daemon
-    // cannot answer in time (cold start, load, crash).
-    let fallback = (ev == HookEvent::PreToolUse).then(|| env.clone());
+    let fallback = local_fallback.then(|| env.clone());
     let rt = crate::runtime().ok()?;
     let outcome = rt.block_on(async {
         let spawn = crate::spawn_daemon;
@@ -195,11 +415,7 @@ fn process(
         deadline(total, emit_one_shot(endpoint, env, &opts)).await
     });
     if let (Some(e), EmitOutcome::Passthrough { .. }) = (fallback, &outcome) {
-        // Same engine and Guardian rules as the daemon, minus storage-backed modules.
         return Some(emit_in_process(e));
-    }
-    if ev == HookEvent::UserPromptSubmit {
-        return Some(with_model_note(input, outcome));
     }
     Some(outcome)
 }
@@ -336,9 +552,16 @@ pub const HOOK_TABLE: [(&str, Option<&str>, u32); 6] = [
         Some("Bash|Write|Edit|MultiEdit|NotebookEdit|Read"),
         5,
     ),
-    ("PostToolUse", Some("Bash|Read|Grep"), 5),
-    ("Stop", None, 3),
-    ("SessionStart", None, 3),
+    // Edit tools feed Sentinel (`files.changed`); Bash is checked with `git status` (<= 0.8 s).
+    (
+        "PostToolUse",
+        Some("Bash|Read|Grep|Write|Edit|MultiEdit|NotebookEdit"),
+        6,
+    ),
+    // Sentinel audit (3 s budget) + optional `KEPLER_SENTINEL_CHECK` (20 s by default).
+    ("Stop", None, 45),
+    // Two events (start + project memory brief); the first may start the daemon.
+    ("SessionStart", None, 6),
     ("SessionEnd", None, 3),
 ];
 
@@ -434,7 +657,7 @@ mod tests {
             assert_eq!(h["type"], "command");
             assert_eq!(h["command"], "C:/Tools/kepler.exe");
             assert_eq!(h["args"], json!(["hook", "claude-code", event]));
-            assert!(h["timeout"].as_u64().unwrap() <= 14);
+            assert!(h["timeout"].as_u64().unwrap() <= 45);
         }
         let s = settings_block("/opt/it's/kepler", true);
         let c = s["hooks"]["Stop"][0]["hooks"][0]["command"]

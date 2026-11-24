@@ -109,8 +109,14 @@ fn untracked_files(root: &Path) -> Vec<FileDiff> {
     ) else {
         return Vec::new();
     };
+    let list: Vec<String> = o.stdout.lines().map(str::to_string).collect();
+    untracked_from(root, &list)
+}
+
+fn untracked_from(root: &Path, list: &[String]) -> Vec<FileDiff> {
     let mut out = Vec::new();
-    for rel in o.stdout.lines().take(MAX_UNTRACKED) {
+    for rel in list.iter().take(MAX_UNTRACKED) {
+        let rel = rel.as_str();
         if rel.is_empty() {
             continue;
         }
@@ -153,6 +159,78 @@ fn untracked_files(root: &Path) -> Vec<FileDiff> {
         });
     }
     out
+}
+
+/// A repository-relative path safe to hand to git as a literal pathspec.
+fn safe_rel(p: &str) -> bool {
+    !p.is_empty()
+        && p.len() <= 1024
+        && !p.starts_with(['-', '/', '\\'])
+        && !p.contains(['\0', '\n', '\r', ':'])
+        && !p.split(['/', '\\']).any(|s| s == "..")
+}
+
+/// Audit only `paths` (relative to `root`) of the repository: `git diff HEAD -- <paths>` plus
+/// those of them that are untracked, with the same rules as [`audit_repo`] (ADR-0027). Bounded,
+/// read-only, never reads sensitive files' content. Unsafe paths are ignored.
+pub fn audit_files(root: &Path, paths: &[String]) -> Result<AuditReport, AuditError> {
+    if !kepler_git::is_repo(root) {
+        return Err(AuditError::NotARepo);
+    }
+    let rel: Vec<&str> = paths
+        .iter()
+        .map(String::as_str)
+        .filter(|p| safe_rel(p))
+        .take(100)
+        .collect();
+    if rel.is_empty() {
+        return Ok(AuditReport {
+            files: 0,
+            untracked_scanned: 0,
+            truncated: false,
+            hits: Vec::new(),
+        });
+    }
+    let opts = GitOptions::default();
+    let with = |base: &[&'static str]| -> Vec<&str> {
+        let mut a: Vec<&str> = vec!["--literal-pathspecs"];
+        a.extend_from_slice(base);
+        a.push("--");
+        a.extend(rel.iter().copied());
+        a
+    };
+    let mut diff_args: Vec<&str> = DIFF_ARGS.to_vec();
+    diff_args.push("HEAD");
+    let (text, truncated) = match run(root, &with(&diff_args), &opts) {
+        Ok(o) => (o.stdout, o.truncated),
+        // No commits yet: staged plus unstaged.
+        Err(GitError::Failed { .. }) => {
+            let mut cached = DIFF_ARGS.to_vec();
+            cached.push("--cached");
+            let a = run(root, &with(&cached), &opts)?;
+            let b = run(root, &with(&DIFF_ARGS), &opts)?;
+            (format!("{}\n{}", a.stdout, b.stdout), a.truncated || b.truncated)
+        }
+        Err(e) => return Err(e.into()),
+    };
+    let mut files = parse_unified(&text);
+    let untracked: Vec<String> = run(
+        root,
+        &with(&["ls-files", "--others", "--exclude-standard"]),
+        &opts,
+    )
+    .map(|o| o.stdout.lines().map(str::to_string).collect())
+    .unwrap_or_default();
+    let extra = untracked_from(root, &untracked);
+    let untracked_scanned = extra.iter().filter(|f| !f.added.is_empty()).count();
+    files.extend(extra);
+    files.truncate(MAX_FILES);
+    Ok(AuditReport {
+        files: files.len(),
+        untracked_scanned,
+        truncated,
+        hits: audit_diffs(&files),
+    })
 }
 
 /// Audit the repository containing `root`. Read-only: it runs `git diff`/`ls-files` only.
@@ -262,6 +340,21 @@ mod tests {
         git(&d, &["commit", "-q", "-m", "second"]);
         let r = audit_repo(&d, &AuditScope::Base("HEAD~1".into())).unwrap();
         assert!(r.hits.iter().any(|h| h.rule_id == "rust.unsafe"));
+    }
+
+    #[test]
+    fn audit_files_only_looks_at_the_given_paths() {
+        let d = repo("files");
+        std::fs::write(d.join("a.rs"), "fn main() {}\nlet x = y.unwrap();\n").unwrap();
+        std::fs::write(d.join("other.js"), "eval(x)\n").unwrap();
+        std::fs::write(d.join("new.py"), "eval(a)\n").unwrap();
+        let r = audit_files(&d, &["a.rs".into(), "new.py".into(), "../etc".into(), "-x".into()])
+            .unwrap();
+        let ids: Vec<(&str, &str)> = r.hits.iter().map(|h| (h.rule_id, h.path.as_str())).collect();
+        assert!(ids.contains(&("rust.unwrap", "a.rs")), "{ids:?}");
+        assert!(ids.contains(&("py.eval", "new.py")), "{ids:?}");
+        assert!(!ids.iter().any(|(_, p)| *p == "other.js"), "{ids:?}");
+        assert!(audit_files(&d, &["../x".into()]).unwrap().hits.is_empty());
     }
 
     #[test]

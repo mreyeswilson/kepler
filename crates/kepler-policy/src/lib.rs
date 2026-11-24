@@ -14,6 +14,7 @@ mod classify;
 mod decision;
 mod engine;
 pub mod guardian;
+pub mod optimize;
 mod preflight;
 pub mod redact;
 pub mod sensitive;
@@ -29,5 +30,6 @@ pub use engine::{
 pub use guardian::{
     BudgetStage, Guardian, GuardianRules, DEFAULT_CONTEXT_BUDGET_TOKENS, MAX_RULES,
 };
+pub use optimize::{plan_read, ReadPlan, TokenGuardConfig};
 pub use preflight::{preflight_tool_call, preflight_tool_call_with_roots};
 pub use tokens::{estimate_tokens, Basis, ModelFamily, TokenCount};
