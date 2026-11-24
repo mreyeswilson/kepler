@@ -75,7 +75,7 @@
       }));
     });
     if (rows.length === 0) body.push(el("tr", null, [el("td", { colspan: cols.length, class: "muted", text: (opts && opts.empty) || "sin datos" })]));
-    return el("div", { class: "tablewrap" }, [el("table", null, [head].concat(body))]);
+    return el("div", { class: "tablewrap" }, [el("table", { class: opts && opts.nw ? "nw" : null }, [head].concat(body))]);
   }
 
   // Distribution as labelled bars (counts, not percentages of anything invented).
@@ -109,7 +109,7 @@
       { label: "Bytes", get: (r) => r.payload_bytes },
       { label: "Modulo", get: (r) => r.actors },
       { label: "ms", get: (r) => r.ms },
-      { label: "Detalle", get: (r) => r.detail },
+      { label: "Detalle", get: (r) => (r.detail ? el("span", { class: "mono wrapall", text: r.detail }) : "") },
     ];
     if (withSession) cols.splice(1, 0, { label: "Sesion", get: (r) => el("a", { href: "#/sesiones/" + encodeURIComponent(r.session_id), text: r.session }) });
     return cols;
@@ -171,7 +171,7 @@
           { label: "Prompts", get: (r) => r.prompts },
           { label: "Eventos", get: (r) => r.events },
           { label: "Decisiones", get: (r) => el("div", null, Object.keys(r.decisions).map((k) => tag(k + ": " + r.decisions[k], k))) },
-        ], d.sessions || [], { onrow: (r) => { location.hash = "#/sesiones/" + encodeURIComponent(r.session_id); }, empty: "no hay sesiones registradas" }),
+        ], d.sessions || [], { nw: true, onrow: (r) => { location.hash = "#/sesiones/" + encodeURIComponent(r.session_id); }, empty: "no hay sesiones registradas" }),
         pager(d.offset, d.limit, d.total, (o) => { sessOffset = o; show(); }),
       ];
     },
@@ -191,7 +191,7 @@
           el("button", { text: "Limpiar", onclick: () => { for (const k of Object.keys(f)) f[k] = k === "offset" ? 0 : ""; show(); } }),
         ]),
         d.attribution === false ? el("div", { class: "banner", text: "Esquema antiguo: sin columnas de modulo/ms hasta que el daemon migre." }) : null,
-        table(eventCols(true), d.events || [], { empty: "ningun evento coincide" }),
+        table(eventCols(true), d.events || [], { nw: true, empty: "ningun evento coincide" }),
         pager(d.offset, d.limit, d.total, (o) => { f.offset = o; show(); }),
         note(d.note),
       ];
@@ -400,7 +400,7 @@
         card("Ultimo", ago(s.last_seen), fmtTime(s.last_seen)),
       ]),
       h2("Linea de tiempo" + (d.truncated ? " (ultimos " + d.timeline.length + ")" : "")),
-      table(eventCols(false), d.timeline || [], { empty: "sin eventos" }),
+      table(eventCols(false), d.timeline || [], { nw: true, empty: "sin eventos" }),
     ];
   }
 
